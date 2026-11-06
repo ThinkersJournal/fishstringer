@@ -1,0 +1,7 @@
+# fishstringer
+
+Planned. This repository is a placeholder: the crate name `fishstringer` is reserved (version 0.0.0, `publish = false`) and
+nothing here works yet.
+
+Licensed under either of the Apache License, Version 2.0 (`LICENSE-APACHE`) or the MIT licence (`LICENSE-MIT`), at your
+option.
