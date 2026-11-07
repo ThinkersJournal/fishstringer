@@ -4,6 +4,7 @@ You are the `fishstringer` lane (cwd `C:\Projects\fishstringer`, repo `ThinkersJ
 2026-11-06 via PM). Plan: `docs/CHARTER.md`, `docs/SLANG_INVENTORY.md`, `docs/KERNEL_RECONCILIATION.md`, `docs/PUBLISH_PLAN.md`.
 
 ## State (2026-11-07)
+PM ruling 2026-11-07: #6 (ci-workspace, 0.0.2, ci.yml --workspace; worktree ../fishstringer-wt-ci) merges FIRST. Then merge main into #2 (workspace version 0.0.3), #3 0.0.4, #4 0.0.5, #5 0.0.6 (emitter slangc job stays in #5); #2's CI must run on all crates before the PM merges it (--merge). PM adds the slang-emit job to required checks after #5.
 Stacked PRs, PM merges in this order (#2 with --merge, keeps 69 Fuel commits; the others are history imports too, ask for --merge):
 - #2 kernels-import (0.0.2): fishstringer-kernels-source. 11/11 green. PM merges it himself.
 - #3 publish-plan: docs/PUBLISH_PLAN.md. PM ruled: after #2 merges, merge main in and bump workspace version to 0.0.3. Worktree ../fishstringer-wt-publishplan.
@@ -20,4 +21,4 @@ Scratch imports (blob-identical to Vulkane f7fa204) are in /tmp/fsimport (imp-sl
 4. Ask PM to add the new `slang-emit` CI job to required checks and set branch protection.
 5. The 27 .glsl stay Vulkane's; ask where they live once Fuel's crate goes. Unpopped's Slang docs/corpus example: Unpopped's call.
 
-WAIT: PM merge of #2 (then #3 bump, retargets) | check: gh pr view 2 --repo ThinkersJournal/fishstringer --json state,mergedAt | wake: 2026-11-07T13:43:06Z
+WAIT: PM merge of #6 (then renumber/merge main into #2..#5) | check: gh pr view 6 --repo ThinkersJournal/fishstringer --json state,mergedAt | wake: 2026-11-07T13:43:06Z
