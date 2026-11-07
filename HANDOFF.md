@@ -13,7 +13,7 @@ Fuel: wants a pinned regen step, will byte-compare regenerated vs committed .spv
 ## Next
 1. Watch CI on #3/#8/#9; after #9 merges rebase #8 (remove glsl/glslang bits it still carries: manifest CI loop `*.glsl`, toolchain print, README lines) and bump if the PM says.
 2. After publish: tell fuel/vulkane the exact versions; handle any live-test failure they report (softmax_f64, unary_f64, 26 subgroup kernels).
-3. Read the 26 Fuel-changed kernel diffs line by line (only classified); candle line-overlap on the 30 post-copy files.
+3. DONE: the 26 Fuel-changed diffs read and pattern-checked (KERNEL_RECONCILIATION). Left: candle line-overlap on the 30 post-copy files.
 4. Triton/Mojo stay parked (PORTFOLIO-ROADMAP L2/L3). Unpopped's Slang docs/corpus example move is Unpopped's call.
 
 WAIT: PM gate of #9, #8, #3 then publish of the three crates | check: gh pr list --repo ThinkersJournal/fishstringer --state all --json number,state; curl crates.io API max_version fishstringer-slang-emit | wake: 2026-11-07T15:50:27Z
