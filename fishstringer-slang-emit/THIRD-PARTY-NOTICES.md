@@ -31,3 +31,10 @@ sha256 `e863e568c204810d6e8bc31852f056aef6763c55ea9925db2db7affa060347c9`. That 
 asset; it was re-computed on 2026-10-30 from a downloaded copy (83,407,874 bytes) and matched. The workflow re-checks it with
 `sha256sum -c` on every run. Slang is Apache-2.0 with LLVM exception (its tarball carries `LICENSE` and `LICENSES/`); nothing from
 it is copied into, linked into or published with this crate.
+
+## Move history
+
+This crate was `vulkane-slang-emit` in Vulkane (`https://github.com/ciresnave/vulkane`, same owner, same licence) until
+2026-11-07; its history was imported unchanged (196 commits, blob-identical to Vulkane `f7fa204`). Changed: the package
+name, repository URL, the `VULKANE_REQUIRE_SLANGC` environment variable (now `FISHSTRINGER_REQUIRE_SLANGC`) and the
+crate names in docs and tests. The CI job that downloads `slangc` (above) moved with it into this repository's `ci.yml`.

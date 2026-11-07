@@ -38,6 +38,7 @@
 //! and, until this file, nothing stated. The collapse is pinned below so the
 //! precondition is executable rather than a sentence someone has to find.
 
+use fishstringer_slang_emit::Slang;
 use unpopped::backend::Backend;
 use unpopped::ir::{OpDef, input};
 use unpopped::try_generate;
@@ -46,7 +47,6 @@ use unpopped_vocab::{
     ArchSku, DispatchEntry, DispatchTable, ElementKind, Implementor, OpCategory, OperandDesc,
     Provenance, StructureKey, structure_key,
 };
-use vulkane_slang_emit::Slang;
 
 fn cell() -> StructureKey {
     let d = OperandDesc::new(1, &[7], &[1], ElementKind::F32, 4);

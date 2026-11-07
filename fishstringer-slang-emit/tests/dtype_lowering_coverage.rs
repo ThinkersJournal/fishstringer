@@ -30,11 +30,11 @@
 //! dtype must still *name* it, so it can decline as a known dtype rather than as
 //! an unknown token. This file pins which is which.
 
+use fishstringer_slang_emit::Slang;
 use unpopped::ir::{OpDef, input};
 use unpopped::try_generate;
 use unpopped_cpu_c::CpuC;
 use unpopped_vocab::{ArchSku, ElementKind, OpCategory, OperandDesc, structure_key};
-use vulkane_slang_emit::Slang;
 
 /// What a backend does with a dtype, and **why**.
 ///

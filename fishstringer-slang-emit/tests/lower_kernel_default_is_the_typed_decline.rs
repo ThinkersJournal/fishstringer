@@ -14,13 +14,13 @@
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+use fishstringer_slang_emit::Slang;
 use unpopped::backend::{Backend, DtypeSupport, GeneratedKernel, LowerError};
 use unpopped::exec::Scope;
 use unpopped::kernel::{Block, KernelFn, Stmt};
 use unpopped::plan::KernelPlan;
 use unpopped_cpu_c::CpuC;
 use unpopped_vocab::{ElementKind, TargetId};
-use vulkane_slang_emit::Slang;
 
 /// A downstream-shaped backend: only what the trait requires.
 struct Bare;

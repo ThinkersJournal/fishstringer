@@ -22,7 +22,7 @@
 //! ## Naming — round-trips through the Slang lifter
 //!
 //! Buffers are `output` / `input{K}` (not `out`/`in`, which are HLSL keywords),
-//! matching `vulkane_slang_parse::SLANG`'s convention — the `Frontend` that
+//! matching `fishstringer_slang_parse::SLANG`'s convention — the `Frontend` that
 //! `lift_elementwise` is given — so emitted
 //! Slang re-lifts to the same IR (the residue-round-trip contract the "one IR, N
 //! languages" hub rests on; proven by `slang_emit_round_trips_through_the_lifter`).
@@ -1235,9 +1235,9 @@ mod tests {
     #[cfg(feature = "convert")]
     #[test]
     fn slang_emit_round_trips_through_the_lifter() {
+        use fishstringer_slang_parse::SLANG;
         use unpopped::convert::lift_elementwise;
         use unpopped::ir::ScalarExpr;
-        use vulkane_slang_parse::SLANG;
         let op = OpDef::elementwise("mul", 2, &[ElementKind::F32], input(0) * input(1));
         let k = generate(&op, &binary_scalar_key(ElementKind::F32, 4), &Slang);
         let lifted = lift_elementwise(&SLANG, &k.source, "mul", &[ElementKind::F32])
@@ -1259,7 +1259,7 @@ mod tests {
     /// type-checks + lowers, not just parses). Covers the infix / unary-intrinsic
     /// / double / ternary / compare-cast / NaN-propagating / int-operator speller
     /// paths. Needs `slangc` on PATH: without it the test returns early, UNLESS
-    /// `VULKANE_REQUIRE_SLANGC` is set, in which case a missing `slangc` is a
+    /// `FISHSTRINGER_REQUIRE_SLANGC` is set, in which case a missing `slangc` is a
     /// failure (CI sets it, with a pinned, checksum-verified `slangc`, so the
     /// test cannot silently pass by skipping there).
     #[test]
@@ -1269,11 +1269,11 @@ mod tests {
 
         if Command::new("slangc").arg("-v").output().is_err() {
             assert!(
-                std::env::var_os("VULKANE_REQUIRE_SLANGC").is_none(),
-                "VULKANE_REQUIRE_SLANGC is set but `slangc` could not be run"
+                std::env::var_os("FISHSTRINGER_REQUIRE_SLANGC").is_none(),
+                "FISHSTRINGER_REQUIRE_SLANGC is set but `slangc` could not be run"
             );
             eprintln!(
-                "skipping: `slangc` not on PATH (set VULKANE_REQUIRE_SLANGC to make this fatal)"
+                "skipping: `slangc` not on PATH (set FISHSTRINGER_REQUIRE_SLANGC to make this fatal)"
             );
             return;
         }

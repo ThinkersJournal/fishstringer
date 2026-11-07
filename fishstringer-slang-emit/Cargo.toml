@@ -1,15 +1,15 @@
 [package]
-name         = "vulkane-slang-emit"
-version      = "0.21.6"
+name         = "fishstringer-slang-emit"
+version.workspace = true
 edition      = "2024"
 rust-version = "1.85"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
 license      = "MIT OR Apache-2.0"
-description  = "The Slang compute-shader emitter for Unpopped: IR to Slang source, with HLSL overloaded intrinsics, StructuredBuffer operands and a [numthreads] entry. Moved from unpopped-slang; Vulkane owns Slang."
+description  = "The Slang compute-shader emitter for Unpopped: IR to Slang source, with HLSL overloaded intrinsics, StructuredBuffer operands and a [numthreads] entry. Moved from unpopped-slang and vulkane-slang-emit; FishStringer owns Slang."
 keywords     = ["kernel", "codegen", "compiler", "slang", "shader"]
 categories   = ["compilers", "development-tools", "graphics"]
-repository   = "https://github.com/ciresnave/vulkane"
-homepage     = "https://github.com/ciresnave/vulkane"
+repository   = "https://github.com/ThinkersJournal/fishstringer"
+homepage     = "https://github.com/ThinkersJournal/fishstringer"
 readme       = "README.md"
 include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 
@@ -29,9 +29,9 @@ unpopped-vocab = "0.43.2"
 # The conformance cells (tests/) compare against the C reference emitter.
 unpopped-cpu-c = "0.43.2"
 # The slangc test writes its sources into a private, auto-removed directory.
-tempfile       = { workspace = true }
+tempfile       = "3.27"
 # The round-trip test lifts emitted Slang back to the IR with the Slang frontend (moved out of unpopped in 0.37.0).
-vulkane-slang-parse = { path = "../vulkane-slang-parse" }
+fishstringer-slang-parse = { path = "../fishstringer-slang-parse" }
 
 [lints.rust]
 missing_docs                    = "deny"
