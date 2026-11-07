@@ -1,23 +1,18 @@
 # fishstringer HANDOFF
 
-You are the `fishstringer` lane (cwd `C:\Projects\fishstringer`, repo `ThinkersJournal/fishstringer`). Owner of Slang
-(CireSnave 2026-11-06 via PM). Read `docs/CHARTER.md` and `docs/SLANG_INVENTORY.md` first; they hold the plan.
+You are the `fishstringer` lane (cwd `C:\Projects\fishstringer`, repo `ThinkersJournal/fishstringer`). Owner of Slang (CireSnave
+2026-11-06 via PM). Plan: `docs/CHARTER.md`, `docs/SLANG_INVENTORY.md`, `docs/KERNEL_RECONCILIATION.md`, `docs/PUBLISH_PLAN.md`.
 
 ## State (2026-11-07)
-- PR #1 (charter + inventory) merged (main 2326f66). Rulings from PM 2026-11-06: crate names `fishstringer-kernels-source`,
-  `fishstringer-slang-emit`, `fishstringer-slang-parse` (PM claims at 0.0.0 and publishes; lanes never publish); the 3
-  divergent kernels are reconciled by me (record: `docs/KERNEL_RECONCILIATION.md`); Fuel and Vulkane confirm in one round.
-- Branch `kernels-import` (worktree `C:\Projectsishstringer-wt-kernels`): Fuel history import + reconciliation + crate
-  scaffold, workspace version 0.0.2. PR opened; [READY] sent. Local fmt/clippy/test/doc/deny green.
-- Not run: GPU live tests (no GPU lane here); Fuel and Vulkane run theirs when they switch.
+#2 squash-merged by mistake; repaired by #7 (merged by hand, main 3f95e41; 69 Fuel commits now ancestors). Rule: PM merges #4 and #5 BY HAND with --merge (his gate tool squashes: never let it touch them); #3 goes through the gate (squash ok).
+- #4 parse-import (0.0.8, head 222150b), #5 emit-import (0.0.9, head a7a773f; carries #4's crate until #4 lands), #3 publish-plan (0.0.10, 94ea8c9). All three [READY] sent; all based on main.
+- PM adds the slang-emit CI job to required checks after #5 lands. Publishing is the PM's (names claimed at 0.0.0).
 
 ## Next
-1. After the kernels PR merges: tell `fuel` and `vulkane` (Synapse) the crate name + the reconciliation doc; they switch and delete their copies.
-2. Emitter + parser import: `vulkane-slang-emit`, `vulkane-slang-parse` (history-preserving, same fast-export method: python
-   rewrite of M/D lines only, ref renamed to refs/heads/main, blob-identity check), rename to `fishstringer-slang-*`.
-   Vulkane's hlsl-emit needs the list of public speller functions (ask Vulkane which, document as API).
-3. Per-file provenance table for moved kernels (line-overlap measurement on the 26+4 files changed after the copy).
-4. The 27 .glsl stay Vulkane's: ask Vulkane/PM where they live after Fuel's crate goes.
-5. Tell PM when the first CI run on main has finished (done for #1: all green; branch protection is the PM's).
+1. Watch CI on #3/#4/#5 (run only on PRs to main: first run after retarget); fix reds.
+2. After publish of the three crates (PM): tell fuel and vulkane (Synapse) the versions; they switch and delete their copies; Vulkane runs softmax_f64_live/unary against our kernels; hlsl-emit depends on the emitter.
+3. Per-file provenance measurement (line-overlap) for the 26 Fuel-changed + 4 added kernels (see KERNEL_RECONCILIATION Open).
+4. Ask PM to add the new `slang-emit` CI job to required checks and set branch protection.
+5. The 27 .glsl stay Vulkane's; ask where they live once Fuel's crate goes. Unpopped's Slang docs/corpus example: Unpopped's call.
 
-WAIT: kernels PR checks and merge | check: gh pr list --repo ThinkersJournal/fishstringer --head kernels-import --json number,state,statusCheckRollup | wake: 2026-11-07T12:31:49Z
+WAIT: PM merges of #4, #5, #3 and their CI | check: gh pr list --repo ThinkersJournal/fishstringer --state all --json number,state,mergedAt | wake: 2026-11-07T15:10:23Z
