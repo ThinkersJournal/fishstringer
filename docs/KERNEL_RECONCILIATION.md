@@ -41,5 +41,11 @@ by the arithmetic check", not "both test suites passed".**
 - Vulkane's `softmax_f64_live.rs` expects `exp` below 2^-1022 and a Lavapipe row sum; if it fails against Fuel's kernel
   it is a finding to bring back here, not to patch in Vulkane.
 - The 26 Fuel-changed diffs were classified, not read line by line.
-- Per-file provenance beyond `THIRD-PARTY-NOTICES.md` (the line-overlap measurement) was not re-run on the files Fuel
-  changed or added after the copy.
+- Per-file provenance beyond `THIRD-PARTY-NOTICES.md`: **partly done 2026-11-07.** Same normalised-line method as
+  Vulkane's (trimmed lines over 25 characters, comments dropped) over all 177 `.slang`, `.slangh` and `.glsl` files here
+  (so including the 26 Fuel-changed and 4 Fuel-added), against llama.cpp `ggml/src/ggml-quants.c` and
+  `ggml/src/ggml-impl.h` at `9d57ce456c` (1,784 distinct reference lines): **0 shared lines in every file.** Control: a
+  50-line slice of the reference compared with itself finds 50 of 50. Limits: it finds copied lines, not translation
+  (the Q6_K and Q4_K kernels are translations and are dispositioned in `THIRD-PARTY-NOTICES.md`); it does not cover
+  llama.cpp's `ggml-vulkan/vulkan-shaders/` (where Vulkane found the one sigmoid line in `unary.slang`) or candle, which
+  were measured by Vulkane on the pre-copy files and not re-run on the 30 later ones.
