@@ -115,6 +115,8 @@ jobs:
           done
       - name: hoist_extinst_imports characterisation tests
         run: python3 -m unittest test_hoist_extinst_imports
+      - name: no_contraction path-check tests
+        run: python3 -m unittest test_no_contraction
 
   deny:
     name: cargo deny (advisories, licences, bans, sources)
