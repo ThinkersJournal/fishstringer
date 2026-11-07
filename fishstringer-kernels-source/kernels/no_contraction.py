@@ -53,21 +53,18 @@ def _tool(name: str) -> str:
     return path
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-
 def _checked_spv(arg: str) -> Path:
-    """The one path this script touches: an existing `.spv` file inside this repository.
+    """The one path this script touches: an existing `.spv` file.
 
-    Resolved first (so `..` and symlinks cannot walk out), then required to end in `.spv` and to lie
-    under the repository root. Anything else is refused, so the path handed to the SDK tools below is
-    never an arbitrary caller-chosen file.
+    Resolved first (so `..` and symlinks are followed to the real file), then required to end in `.spv` and to
+    exist. It may live anywhere: compile.sh writes to the caller's `--out-dir`, which a consumer keeps in its own
+    tree, not under this script's. (0.0.12 also required it to lie under this script's repository root, which made
+    compile.sh exit 1 at unary_f64 for every consumer.) The path handed to the SDK tools below is always a real
+    file ending in `.spv`, never an arbitrary caller-chosen file.
     """
     path = Path(arg).resolve()
     if path.suffix != ".spv" or not path.is_file():
         raise SystemExit(f"error: {arg} is not an existing .spv file")
-    if REPO_ROOT not in path.parents:
-        raise SystemExit(f"error: {path} is outside the repository ({REPO_ROOT})")
     return path
 
 
