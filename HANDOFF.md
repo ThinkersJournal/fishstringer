@@ -1,23 +1,23 @@
 # fishstringer HANDOFF
 
-You are the `fishstringer` lane (cwd `C:\Projects\fishstringer`, repo `ThinkersJournal/fishstringer`). Owner of Slang
-(CireSnave 2026-11-06 via PM). Read `docs/CHARTER.md` and `docs/SLANG_INVENTORY.md` first; they hold the plan.
+You are the `fishstringer` lane (cwd `C:\Projects\fishstringer`, repo `ThinkersJournal/fishstringer`). Owner of Slang (CireSnave
+2026-11-06 via PM). Plan: `docs/CHARTER.md`, `docs/SLANG_INVENTORY.md`, `docs/KERNEL_RECONCILIATION.md`, `docs/PUBLISH_PLAN.md`.
 
 ## State (2026-11-07)
-- PR #1 (charter + inventory) merged (main 2326f66). Rulings from PM 2026-11-06: crate names `fishstringer-kernels-source`,
-  `fishstringer-slang-emit`, `fishstringer-slang-parse` (PM claims at 0.0.0 and publishes; lanes never publish); the 3
-  divergent kernels are reconciled by me (record: `docs/KERNEL_RECONCILIATION.md`); Fuel and Vulkane confirm in one round.
-- Branch `kernels-import` (worktree `C:\Projectsishstringer-wt-kernels`): Fuel history import + reconciliation + crate
-  scaffold, workspace version 0.0.2. PR opened; [READY] sent. Local fmt/clippy/test/doc/deny green.
-- Not run: GPU live tests (no GPU lane here); Fuel and Vulkane run theirs when they switch.
+Stacked PRs, PM merges in this order (#2 with --merge, keeps 69 Fuel commits; the others are history imports too, ask for --merge):
+- #2 kernels-import (0.0.2): fishstringer-kernels-source. 11/11 green. PM merges it himself.
+- #3 publish-plan: docs/PUBLISH_PLAN.md. PM ruled: after #2 merges, merge main in and bump workspace version to 0.0.3. Worktree ../fishstringer-wt-publishplan.
+- #4 parse-import (base kernels-import, 0.0.4): fishstringer-slang-parse. Worktree ../fishstringer-wt-parse.
+- #5 emit-import (base parse-import, 0.0.5): fishstringer-slang-emit + ci.yml fix (--workspace; pinned slangc job). Worktree ../fishstringer-wt-emit.
+After #2 merges: retarget #4 to main (base kernels-import goes away), merge main into each branch so only own commits remain; then #5.
+Publishing is the PM's (claims at 0.0.0 done: all 5 names exist). Vulkane confirmed the emitter's public API = Slang + required_slangc_args (in PUBLISH_PLAN).
+Scratch imports (blob-identical to Vulkane f7fa204) are in /tmp/fsimport (imp-slang-parse, imp-slang-emit), already merged into #4/#5.
 
 ## Next
-1. After the kernels PR merges: tell `fuel` and `vulkane` (Synapse) the crate name + the reconciliation doc; they switch and delete their copies.
-2. Emitter + parser import: `vulkane-slang-emit`, `vulkane-slang-parse` (history-preserving, same fast-export method: python
-   rewrite of M/D lines only, ref renamed to refs/heads/main, blob-identity check), rename to `fishstringer-slang-*`.
-   Vulkane's hlsl-emit needs the list of public speller functions (ask Vulkane which, document as API).
-3. Per-file provenance table for moved kernels (line-overlap measurement on the 26+4 files changed after the copy).
-4. The 27 .glsl stay Vulkane's: ask Vulkane/PM where they live after Fuel's crate goes.
-5. Tell PM when the first CI run on main has finished (done for #1: all green; branch protection is the PM's).
+1. When #2 merges: do the #3 bump (0.0.3) and retarget #4/#5; send [READY]s as needed.
+2. After publish of the three crates (PM): tell fuel and vulkane (Synapse) the versions; they switch and delete their copies; Vulkane runs softmax_f64_live/unary against our kernels; hlsl-emit depends on the emitter.
+3. Per-file provenance measurement (line-overlap) for the 26 Fuel-changed + 4 added kernels (see KERNEL_RECONCILIATION Open).
+4. Ask PM to add the new `slang-emit` CI job to required checks and set branch protection.
+5. The 27 .glsl stay Vulkane's; ask where they live once Fuel's crate goes. Unpopped's Slang docs/corpus example: Unpopped's call.
 
-WAIT: kernels PR checks and merge | check: gh pr list --repo ThinkersJournal/fishstringer --head kernels-import --json number,state,statusCheckRollup | wake: 2026-11-07T12:31:49Z
+WAIT: PM merge of #2 (then #3 bump, retargets) | check: gh pr view 2 --repo ThinkersJournal/fishstringer --json state,mergedAt | wake: 2026-11-07T13:43:06Z
