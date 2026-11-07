@@ -4,20 +4,16 @@ You are the `fishstringer` lane (cwd `C:\Projects\fishstringer`, repo `ThinkersJ
 2026-11-06 via PM). Read `docs/CHARTER.md`, `docs/SLANG_INVENTORY.md`, `docs/KERNEL_RECONCILIATION.md`, `docs/PUBLISH_PLAN.md`.
 
 ## State (2026-11-07)
-In main (workspace 0.0.9): fishstringer-kernels-source, fishstringer-slang-parse, fishstringer-slang-emit, all with history
-(#2 squashed by the PM's gate tool, repaired by #7; #4, #5 merge commits). Not published: the PM publishes (names claimed at 0.0.0),
-order kernels-source, slang-parse, slang-emit. Open: #3 (docs: publish plan + KERNEL_RECONCILIATION addendum + this HANDOFF; 0.0.10; PM gates).
-Rules: PM merges history imports BY HAND with --merge (his gate tool ignores holds and squashes); every pushed change takes a version
-(PM allocates); lanes never publish; CI only runs on PRs to main. Required check to add (PM): "fishstringer-slang-emit (pinned slangc)".
-Fuel and Vulkane notified 2026-11-07 (Synapse roles fuel, vulkane): they switch after publish, run their live tests (softmax_f64, unary_f64,
-subgroup-stride kernels) against the crate, and delete their copies. Questions out: Fuel how it consumes a package + where the 27 .glsl go;
-Vulkane whether the .glsl are removed from our kernels crate.
+In main (0.0.9): fishstringer-kernels-source, -slang-parse, -slang-emit with history (#2 squashed by the PM's gate tool, repaired by #7). Branch protection is on (8 required checks incl. "fishstringer-slang-emit (pinned slangc)").
+Open PRs, all based on main, PM gates (squash ok): #3 docs + this HANDOFF (0.0.10, worktree ../fishstringer-wt-publishplan), #9 drop 27 .glsl (0.0.11, ../fishstringer-wt-glsl; PM ruling, Vulkane confirmed it holds them), #8 compile.sh flags for Fuel (--src-dir, --print-manifest, --print-toolchain, hard fail on missing tool; 0.0.12, ../fishstringer-wt-compile; ask PM to add job "fishstringer-kernels-source (manifest, scripts)" to required checks).
+Order: #9 first, then rebase #8 over it (both edit compile.sh; #8 drops glsl in manifest loop and toolchain print), then PM publishes kernels-source, slang-parse, slang-emit (PUBLISH_PLAN). Publish only after #9, #8, #3 are in: Fuel needs #8's flags in the package.
+Rules: PM merges history imports by hand --merge (n/a now); every pushed change takes a version (PM allocates); lanes never publish.
+Fuel: wants a pinned regen step, will byte-compare regenerated vs committed .spv; asked for the flags (done in #8). Vulkane: switches after publish (hlsl-emit, spirv-emit dev-dep, ci slangc job).
 
 ## Next
-1. Watch #3 CI, then gate. Answer Fuel/Vulkane replies; act on glsl decision (removing .glsl from the crate = a PR + version).
-2. After publish: confirm versions with the PM and tell fuel/vulkane the exact versions; handle any live-test failure they report.
-3. Read the 26 Fuel-changed kernel diffs line by line (only classified so far); measure candle line-overlap on the 30 post-copy files.
-4. Roadmap: Triton/Mojo parked (PORTFOLIO-ROADMAP L2/L3: no way to test yet); Unpopped Slang docs/corpus example move is Unpopped's call.
-5. Ask PM about branch protection when the first publish is done.
+1. Watch CI on #3/#8/#9; after #9 merges rebase #8 (remove glsl/glslang bits it still carries: manifest CI loop `*.glsl`, toolchain print, README lines) and bump if the PM says.
+2. After publish: tell fuel/vulkane the exact versions; handle any live-test failure they report (softmax_f64, unary_f64, 26 subgroup kernels).
+3. Read the 26 Fuel-changed kernel diffs line by line (only classified); candle line-overlap on the 30 post-copy files.
+4. Triton/Mojo stay parked (PORTFOLIO-ROADMAP L2/L3). Unpopped's Slang docs/corpus example move is Unpopped's call.
 
-WAIT: PM gate/merge of #3 and publish of the three crates | check: gh pr view 3 --repo ThinkersJournal/fishstringer --json state,mergedAt; curl crates.io API for fishstringer-slang-emit max_version | wake: 2026-11-07T15:48:50Z
+WAIT: PM gate of #9, #8, #3 then publish of the three crates | check: gh pr list --repo ThinkersJournal/fishstringer --state all --json number,state; curl crates.io API max_version fishstringer-slang-emit | wake: 2026-11-07T15:50:27Z
