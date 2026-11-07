@@ -122,3 +122,10 @@ The remaining `.slang` and `.glsl` files, `compile.sh` and `hoist_extinst_import
 `SPDX-License-Identifier: MIT OR Apache-2.0`. Fuel's table found no lineage to candle for any of them.
 This repository's `LICENSE-MIT` and `LICENSE-APACHE` are shipped in the package. Fuel's `LICENSE-MIT` (candle's
 text, with no copyright holder) is in the git history, not shipped.
+
+## GLSL files removed
+
+The 27 `.glsl` files that shipped beside the Slang kernels in Fuel and Vulkane (conv2d im2col, flash attention, cooperative-matrix
+and small-shape matmul, matvec) were removed from this crate on 2026-11-07 before its first publish, because GLSL is Vulkane's
+(CireSnave, 2026-11-06, via the PM). Vulkane's `vulkane-kernels-source` holds all 27, byte-identical (Vulkane's three-way blob check).
+The sections above describe what was checked when they were present; their history is in this repository's git log.
