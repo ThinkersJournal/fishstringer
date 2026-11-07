@@ -61,6 +61,36 @@ jobs:
           toolchain: stable
       - run: cargo doc --workspace --no-deps --all-features
 
+  # `fishstringer-slang-emit`'s slangc-gated test and its `convert` feature. slangc is the Slang project's own
+  # release, pinned by version AND sha256 (the digest GitHub records for the asset; re-computed by hand from a
+  # download on 2026-10-30, identical). The test is fatal without slangc because FISHSTRINGER_REQUIRE_SLANGC is set.
+  slang-emit:
+    name: fishstringer-slang-emit (pinned slangc)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@686976e191b89faba57d3206551f0f330d8cb249 # stable
+        with:
+          toolchain: stable
+      - name: Install pinned slangc (runner provisioning)
+        shell: bash
+        run: |
+          set -euo pipefail
+          v=2026.20
+          sha=e863e568c204810d6e8bc31852f056aef6763c55ea9925db2db7affa060347c9
+          curl -fsSL -o slang.tar.gz "https://github.com/shader-slang/slang/releases/download/v${v}/slang-${v}-linux-x86_64.tar.gz"
+          echo "${sha}  slang.tar.gz" | sha256sum -c -
+          mkdir slang && tar xzf slang.tar.gz -C slang
+          echo "$PWD/slang/bin" >> "$GITHUB_PATH"
+      - name: slangc runs and is the pinned version
+        shell: bash
+        run: slangc -v 2>&1 | tee /dev/stderr | grep -q '2026.20'
+      - name: Test fishstringer-slang-emit
+        shell: bash
+        env:
+          FISHSTRINGER_REQUIRE_SLANGC: "1"
+        run: cargo test -p fishstringer-slang-emit --features convert
+
   deny:
     name: cargo deny (advisories, licences, bans, sources)
     runs-on: ubuntu-latest
