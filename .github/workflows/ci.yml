@@ -91,6 +91,31 @@ jobs:
           FISHSTRINGER_REQUIRE_SLANGC: "1"
         run: cargo test -p fishstringer-slang-emit --features convert
 
+  # No toolchain needed: the compile script parses, its manifest is consistent with the sources on disk, and the
+  # SPIR-V post-processing helper's characterisation tests pass.
+  kernels-source:
+    name: fishstringer-kernels-source (manifest, scripts)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: fishstringer-kernels-source/kernels
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: compile.sh parses
+        run: bash -n compile.sh
+      - name: Manifest is one row per output, no duplicate output names, and covers every source
+        run: |
+          set -euo pipefail
+          bash compile.sh --print-manifest > "$RUNNER_TEMP/manifest.tsv"
+          test -s "$RUNNER_TEMP/manifest.tsv"
+          dups="$(cut -f3 "$RUNNER_TEMP/manifest.tsv" | sort | uniq -d)"
+          if [ -n "$dups" ]; then echo "duplicate outputs:" "$dups" >&2; exit 1; fi
+          for f in *.slang; do
+            cut -f1 "$RUNNER_TEMP/manifest.tsv" | grep -qxF "$f" || { echo "not in manifest: $f" >&2; exit 1; }
+          done
+      - name: hoist_extinst_imports characterisation tests
+        run: python3 -m unittest test_hoist_extinst_imports
+
   deny:
     name: cargo deny (advisories, licences, bans, sources)
     runs-on: ubuntu-latest
