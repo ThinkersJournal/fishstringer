@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT OR Apache-2.0
-# Compile every shader source (*.wgsl, *.glsl, *.slang) in this
+# Compile every shader source (*.wgsl, *.slang) in this
 # directory to SPIR-V, writing the output to --out-dir DIR (default ../spv/).
 #
-# Toolchain: requires the Vulkan SDK (for slangc + glslangValidator)
-# and naga-cli (cargo install naga-cli) on PATH.
+# Toolchain: requires slangc (Vulkan SDK or the Slang releases) and, for any .wgsl, naga-cli
+# (cargo install naga-cli) on PATH. GLSL sources are not in this crate (GLSL is Vulkane's).
 #
 # Compiled SPIR-V is not kept in this crate; each consumer builds (and, if it
 # wants, commits) its own from these sources.
@@ -22,7 +22,6 @@
 #
 # Conventions:
 #   .wgsl   -> naga (Vulkan 1.1 / SPIR-V 1.3)
-#   .glsl   -> glslangValidator, compute stage, Vulkan 1.1
 #   .slang  -> slangc, SPIR-V, profile glsl_450
 #             Default entry point is 'main', output is <basename>.spv.
 #             To compile multiple entry points from one source, add a
@@ -30,10 +29,6 @@
 #                 // entries: silu_forward, silu_backward
 #             Each listed entry becomes its own <entry>.spv.
 #
-# GLSL files that need a specific entry or non-default SPIR-V version
-# can override via a sidecar comment line `// compile: <flags>` at
-# the top of the file.
-
 set -euo pipefail
 
 # SCRIPT_DIR holds this script and its post-processing helpers (*.py); SRC_DIR holds the sources to compile
@@ -62,17 +57,13 @@ if [[ "$MODE" == compile ]]; then
   OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 fi
 
-# Resolve tools. slangc and glslangValidator come from the Vulkan SDK.
+# Resolve tools. slangc comes from the Vulkan SDK.
 SLANGC="${SLANGC:-${VULKAN_SDK:-}/Bin/slangc}"
-GLSLANG="${GLSLANG:-${VULKAN_SDK:-}/Bin/glslangValidator}"
 NAGA="${NAGA:-naga}"
 
 # On non-Windows the SDK usually puts binaries in bin/ (lowercase).
 if [[ ! -x "$SLANGC" && -n "${VULKAN_SDK:-}" ]]; then
   [[ -x "$VULKAN_SDK/bin/slangc" ]] && SLANGC="$VULKAN_SDK/bin/slangc"
-fi
-if [[ ! -x "$GLSLANG" && -n "${VULKAN_SDK:-}" ]]; then
-  [[ -x "$VULKAN_SDK/bin/glslangValidator" ]] && GLSLANG="$VULKAN_SDK/bin/glslangValidator"
 fi
 
 check_tool() {
@@ -89,14 +80,6 @@ compile_wgsl() {
   local out="$OUT_DIR/$base.spv"
   echo "  wgsl  $base.wgsl -> $OUT_DIR/$base.spv"
   "$NAGA" "$src" "$out"
-}
-
-compile_glsl() {
-  local src="$1"
-  local base; base="$(basename "$src" .glsl)"
-  local out="$OUT_DIR/$base.spv"
-  echo "  glsl  $base.glsl -> $OUT_DIR/$base.spv"
-  "$GLSLANG" -V -S comp --target-env vulkan1.1 "$src" -o "$out" >/dev/null
 }
 
 compile_slang() {
@@ -170,7 +153,6 @@ compile_one() {
   local f="$1"
   case "$f" in
     *.wgsl)  compile_wgsl  "$f" ;;
-    *.glsl)  compile_glsl  "$f" ;;
     *.slang) compile_slang "$f" ;;
     *) echo "warning: unknown shader type: $f" >&2 ;;
   esac
@@ -183,7 +165,6 @@ manifest_one() {
   local -a head40=()
   case "$f" in
     *.wgsl)  kind=wgsl;  base="${f%.wgsl}" ;;
-    *.glsl)  kind=glsl;  base="${f%.glsl}" ;;
     *.slang) kind=slang; base="${f%.slang}" ;;
     *) return 0 ;;
   esac
@@ -212,7 +193,6 @@ manifest_one() {
 print_toolchain() {
   local rc=0
   echo "slangc: $("$SLANGC" -v 2>&1 | head -n 1)" || rc=1
-  echo "glslangValidator: $("$GLSLANG" --version 2>&1 | head -n 1)" || rc=1
   echo "python: $( (python --version || python3 --version) 2>&1 | head -n 1)" || rc=1
   return $rc
 }
@@ -222,7 +202,7 @@ list_sources() {
   if (( $# > 0 )); then printf '%s
 ' "$@"; else
     ( cd "$SRC_DIR" && shopt -s nullglob && printf '%s
-' *.wgsl *.glsl *.slang | LC_ALL=C sort ); fi
+' *.wgsl *.slang | LC_ALL=C sort ); fi
 }
 
 case "$MODE" in
@@ -232,7 +212,6 @@ case "$MODE" in
     exit 0 ;;
   toolchain)
     check_tool "$SLANGC" "slangc"
-    check_tool "$GLSLANG" "glslangValidator"
     print_toolchain
     exit $? ;;
 esac
@@ -243,7 +222,6 @@ if (( $# > 0 )); then
   for arg in "$@"; do
     case "$arg" in
       *.wgsl)  check_tool "$NAGA" "naga-cli" ;;
-      *.glsl)  check_tool "$GLSLANG" "glslangValidator" ;;
       *.slang) check_tool "$SLANGC" "slangc" ;;
     esac
   done
@@ -251,19 +229,17 @@ if (( $# > 0 )); then
 else
   # Compile everything: every tool that a present source type needs must exist (a missing one is an error, not a skip).
   shopt -s nullglob
-  files=( *.wgsl *.glsl *.slang )
+  files=( *.wgsl *.slang )
   (( ${#files[@]} > 0 )) || { echo "error: no shader sources in $SRC_DIR" >&2; exit 1; }
-  for kind in wgsl glsl slang; do
+  for kind in wgsl slang; do
     present=( *."$kind" )
     (( ${#present[@]} > 0 )) || continue
     case "$kind" in
       wgsl)  check_tool "$NAGA" "naga-cli" ;;
-      glsl)  check_tool "$GLSLANG" "glslangValidator" ;;
       slang) check_tool "$SLANGC" "slangc" ;;
     esac
   done
   for f in *.wgsl; do compile_one "$f"; done
-  for f in *.glsl; do compile_one "$f"; done
   for f in *.slang; do compile_one "$f"; done
 fi
 
