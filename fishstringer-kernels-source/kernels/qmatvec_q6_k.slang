@@ -18,6 +18,10 @@
 //   value    = d * scale * (((nibble) | (qh_bits << 4)) - 32)
 // This is ggml's dequantize_row_q6_K written per element.
 //
+// Origin: the decode order follows llama.cpp's dequantize_row_q6_K (ggml/src/ggml-quants.c at 9d57ce456c,
+// MIT, Copyright (c) 2023-2026 The ggml authors), re-expressed per element; no code is copied. The licence text
+// is in THIRD-PARTY-NOTICES.md.
+//
 // One workgroup per output column (n), 128 threads, each stepping over K by 128; then a subgroup +
 // shared-memory reduction whose cross-subgroup combine strides by the subgroup width (right on
 // 8-lane devices, ROADMAP row 134). Simple per-element form: correct and checkable first; whether
