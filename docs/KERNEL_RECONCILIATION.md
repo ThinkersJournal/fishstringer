@@ -40,6 +40,22 @@ by the arithmetic check", not "both test suites passed".**
 
 - Vulkane's `softmax_f64_live.rs` expects `exp` below 2^-1022 and a Lavapipe row sum; if it fails against Fuel's kernel
   it is a finding to bring back here, not to patch in Vulkane.
-- The 26 Fuel-changed diffs were classified, not read line by line.
-- Per-file provenance beyond `THIRD-PARTY-NOTICES.md` (the line-overlap measurement) was not re-run on the files Fuel
-  changed or added after the copy.
+- **The 26 Fuel-changed diffs (read 2026-11-07, Fuel at the copy `750cd2fc3` against Fuel `5aa295281`):** 322 changed lines in
+  total (at most 28 per file). Six were read in full (`layer_norm_last_dim_backward`, `rms_norm_last_dim_f16`,
+  `reduce_last_dim`, `softmax`, `matmul_q4_0_tiled`, `qmatvec_q4_0`); all 26 were then checked line by line against one
+  pattern by script. **320 of 322 changed lines fit it**: a `groupshared` array is enlarged (32 to 64, 16 to 32), and the
+  clamped single read of the cross-subgroup partials `(tid < n_sg) ? p[tid] : identity` becomes a strided loop
+  `for (sgi = tid; sgi < n_sg; sgi += WaveGetLaneCount())` accumulating with the kernel's own combine (sum, max or the
+  `op` switch) before one `WaveActive*`; comments are updated to match. The other 2 lines are the array-size parameter of a
+  helper in `rms_norm_last_dim_backward` (`[32]` to `[64]`), the same resize. So this is Fuel's row-134 fix (Vulkane #133's
+  pattern) and nothing else. Compiled: `compile.sh` built all 26 and `spirv-val --target-env vulkan1.2` passes on all 26
+  (0 failures; local slangc 2026.8, not the CI-pinned 2026.20). **Not shown:** that the kernels are numerically right on a
+  narrow-subgroup device; that is Fuel's Lavapipe leg and live tests.
+- Per-file provenance beyond `THIRD-PARTY-NOTICES.md`: **partly done 2026-11-07.** Same normalised-line method as
+  Vulkane's (trimmed lines over 25 characters, comments dropped) over all 177 `.slang`, `.slangh` and `.glsl` files here
+  (so including the 26 Fuel-changed and 4 Fuel-added), against llama.cpp `ggml/src/ggml-quants.c` and
+  `ggml/src/ggml-impl.h` at `9d57ce456c` (1,784 distinct reference lines): **0 shared lines in every file.** Control: a
+  50-line slice of the reference compared with itself finds 50 of 50. Limits: it finds copied lines, not translation
+  (the Q6_K and Q4_K kernels are translations and are dispositioned in `THIRD-PARTY-NOTICES.md`); it does not cover
+  llama.cpp's `ggml-vulkan/vulkan-shaders/` (where Vulkane found the one sigmoid line in `unary.slang`) or candle, which
+  were measured by Vulkane on the pre-copy files and not re-run on the 30 later ones.
