@@ -1,5 +1,8 @@
 # Publish plan for the fishstringer crates
 
+**Status 2026-11-07 (after #2, #4, #5 landed): all three crates are in `main` at workspace version 0.0.9, with their history
+(#2 squash-merged, history restored by #7; #4 and #5 merge commits). Nothing is published yet; publishing is the PM's.**
+
 Draft 2026-11-07 for the PM, who publishes every release (lanes never publish). Facts read on 2026-11-07: crates.io
 API (max version per crate) and Vulkane `origin/main` `9cdc2d4` manifests. Versions and dependency lines below are
 those of the sources being moved, not yet of this repo.
@@ -8,7 +11,7 @@ those of the sources being moved, not yet of this repo.
 
 | Crate | crates.io today | Holds | Source (moves with history) | Needs |
 |---|---|---|---|---|
-| `fishstringer-kernels-source` | 0.0.0 (claimed) | Slang kernels, `compile.sh`, hoist/no-contraction scripts | PR #2 | nothing: no dependencies, no Rust code |
+| `fishstringer-kernels-source` | 0.0.0 (claimed) | Slang kernels, `compile.sh`, hoist/no-contraction scripts | `fuel-kernels-source` (+ Vulkane's copy), #2 and #7 | nothing: no dependencies, no Rust code |
 | `fishstringer-slang-parse` | 0.0.0 (claimed) | tree-sitter-slang front end: `SLANG` `Frontend`, residue list | `vulkane-slang-parse` | `unpopped` `0.43` with `convert`, `tree-sitter` `0.27`, `tree-sitter-slang` `0.3`; dev: `unpopped-vocab` |
 | `fishstringer-slang-emit` | 0.0.0 (claimed) | IR to Slang text | `vulkane-slang-emit` | `unpopped`, `unpopped-vocab`; feature `convert` = `unpopped/convert`; dev: `unpopped-cpu-c`, `tempfile`, `fishstringer-slang-parse` |
 | `fishstringer`, `fishstringer-sys` | 0.0.0 (claimed) | reserved | this repo's stub | stay reserved, `publish = false` until they have an API |
