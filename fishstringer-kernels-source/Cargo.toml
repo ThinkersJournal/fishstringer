@@ -1,0 +1,20 @@
+[package]
+name         = "fishstringer-kernels-source"
+version.workspace = true
+edition      = "2024"
+rust-version = "1.88"
+authors      = ["Eric Evans <CireSnave@gmail.com>"]
+license      = "MIT OR Apache-2.0"
+description  = "Slang GPU kernel sources (and the GLSL files that ship beside them) with the script that compiles them to SPIR-V. Compiled SPIR-V is the consumer's to build and ship."
+keywords     = ["slang", "gpu", "kernels", "spir-v", "vulkan"]
+categories   = ["graphics", "science"]
+repository   = "https://github.com/ThinkersJournal/fishstringer"
+homepage     = "https://github.com/ThinkersJournal/fishstringer"
+readme       = "README.md"
+include      = ["src/**", "kernels/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
+
+# No Rust code beyond a doc-only lib: the crate is a home for kernel sources and the compile script.
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
