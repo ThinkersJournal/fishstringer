@@ -1,17 +1,17 @@
 [package]
-name         = "vulkane-slang-parse"
-version      = "0.21.6"
+name         = "fishstringer-slang-parse"
+version.workspace = true
 edition      = "2024"
 # 1.90: `tree-sitter-language` 0.1.9 (the grammar ABI shim under tree-sitter-slang) declares it;
 # the highest `rust-version` in this crate's normal+build dependency tree (measured 2026-10-31).
 rust-version = "1.90"
 authors      = ["Eric Evans <CireSnave@gmail.com>"]
 license      = "MIT OR Apache-2.0"
-description  = "The Slang front end for Unpopped: a tree-sitter Slang parser, the Slang residue list and the `SLANG` Frontend that lifts Slang compute kernels into Unpopped's IR. Vulkane owns Slang."
+description  = "The Slang front end for Unpopped: a tree-sitter Slang parser, the Slang residue list and the `SLANG` Frontend that lifts Slang compute kernels into Unpopped's IR. FishStringer owns Slang (moved from vulkane-slang-parse)."
 keywords     = ["kernel", "parser", "compiler", "slang", "shader"]
 categories   = ["compilers", "development-tools", "graphics"]
-repository   = "https://github.com/ciresnave/vulkane"
-homepage     = "https://github.com/ciresnave/vulkane"
+repository   = "https://github.com/ThinkersJournal/fishstringer"
+homepage     = "https://github.com/ThinkersJournal/fishstringer"
 readme       = "README.md"
 include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 

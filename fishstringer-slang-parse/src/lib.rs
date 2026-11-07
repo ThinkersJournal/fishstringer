@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! The Slang front end for [Unpopped](https://crates.io/crates/unpopped).
 //!
-//! Vulkane owns Slang in the CireSnave ecosystem, so the language's parser lives here
-//! (the emitter is `vulkane-slang-emit`). Unpopped keeps the language-neutral half:
+//! FishStringer owns Slang in the CireSnave ecosystem (it moved here from Vulkane's `vulkane-slang-parse`), so the language's parser lives here
+//! (the emitter is `fishstringer-slang-emit`). Unpopped keeps the language-neutral half:
 //! [`Frontend`] and the `lift_*` walkers in `unpopped::convert`, which this crate feeds with
 //! a grammar binding, exactly as `baracuda-cuda-parse` does for CUDA.
 //!
@@ -14,7 +14,7 @@
 //! ```
 //! use unpopped::convert::lift_elementwise;
 //! use unpopped_vocab::ElementKind;
-//! use vulkane_slang_parse::SLANG;
+//! use fishstringer_slang_parse::SLANG;
 //!
 //! let src = "StructuredBuffer<float> input0;\n\
 //!     RWStructuredBuffer<float> output;\n\

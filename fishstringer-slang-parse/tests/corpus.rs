@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The Slang parser over the whole `vulkane-kernels-source` corpus, with the same method as
+//! The Slang parser over the whole `fishstringer-kernels-source` corpus, with the same method as
 //! Unpopped's `docs/slang-corpus-sizing.md` (`slang_corpus_report`): all three lifters are called
 //! directly (never the combined `lift`, which reports only the last attempt's error), the declared
 //! dtype is held at f32 for every file, and a file is bucketed by what the lifters said.
@@ -12,15 +12,15 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
+use fishstringer_slang_parse::SLANG;
 use unpopped::LiftError;
 use unpopped::convert::{lift_elementwise, lift_reduction, lift_scan};
 use unpopped_vocab::ElementKind;
-use vulkane_slang_parse::SLANG;
 
 const F32: &[ElementKind] = &[ElementKind::F32];
 
 fn corpus_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vulkane-kernels-source/kernels")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../fishstringer-kernels-source/kernels")
 }
 
 fn bucket(src: &str, name: &str) -> &'static str {
@@ -83,15 +83,17 @@ fn corpus_histogram_matches_the_baseline_from_unpopped() {
         println!("{v:4}  {k}");
     }
 
-    // Population: the 147 Slang kernels (positive control for the enumeration itself).
-    assert_eq!(slang.len(), 147, "the corpus is the 147 .slang kernels");
+    // Population: the 149 Slang kernels (positive control for the enumeration itself): the 147 that
+    // Unpopped measured plus `qmatvec_q6_k` and `qmatvec_q8_0`, which Fuel added after Vulkane's copy.
+    assert_eq!(slang.len(), 149, "the corpus is the 149 .slang kernels");
     // Every file is accounted for in exactly one bucket.
-    assert_eq!(hist.values().sum::<usize>(), 147);
-    // Baseline measured by Unpopped (docs/slang-corpus-sizing.md, Fuel ded9bed, 2026-09-25):
-    // 53 residue, 94 unrecognized, 0 accepted.
+    assert_eq!(hist.values().sum::<usize>(), 149);
+    // Baseline measured by Unpopped (docs/slang-corpus-sizing.md, Fuel ded9bed, 2026-09-25) over the
+    // first 147: 53 residue, 94 unrecognized, 0 accepted. Re-measured 2026-11-07 here with those two
+    // files removed: the same 53 / 94. The two added files are both residue, so 149 gives 55 / 94.
     assert_eq!(
         hist.get("refused: Inexpressible (residue)").copied(),
-        Some(53)
+        Some(55)
     );
     assert_eq!(hist.get("refused: Unrecognized").copied(), Some(94));
     assert!(
