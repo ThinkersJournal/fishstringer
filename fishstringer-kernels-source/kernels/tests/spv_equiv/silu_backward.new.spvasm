@@ -1,0 +1,108 @@
+; SPIR-V
+; Version: 1.3
+; Generator: Khronos Slang Compiler; 0
+; Bound: 214
+; Schema: 0
+               OpCapability Shader
+         %90 = OpExtInstImport "GLSL.std.450"
+               OpMemoryModel Logical GLSL450
+               OpEntryPoint GLCompute %silu_backward "main" %gl_GlobalInvocationID
+               OpExecutionMode %silu_backward LocalSize 256 1 1
+               OpSource Slang 1
+               OpName %i "i"
+               OpName %BwdParams_std140 "BwdParams_std140"
+               OpMemberName %BwdParams_std140 0 "n"
+               OpMemberName %BwdParams_std140 1 "_pad0"
+               OpMemberName %BwdParams_std140 2 "_pad1"
+               OpMemberName %BwdParams_std140 3 "_pad2"
+               OpName %bwd_params "bwd_params"
+               OpName %StructuredBuffer "StructuredBuffer"
+               OpMemberName %StructuredBuffer 0 "__member0"
+               OpName %bwd_x "bwd_x"
+               OpName %bwd_up "bwd_up"
+               OpName %RWStructuredBuffer "RWStructuredBuffer"
+               OpMemberName %RWStructuredBuffer 0 "__member0"
+               OpName %bwd_grad_x "bwd_grad_x"
+               OpName %silu_backward "silu_backward"
+               OpDecorate %gl_GlobalInvocationID BuiltIn GlobalInvocationId
+               OpDecorate %BwdParams_std140 Block
+               OpMemberDecorate %BwdParams_std140 0 Offset 0
+               OpMemberDecorate %BwdParams_std140 1 Offset 4
+               OpMemberDecorate %BwdParams_std140 2 Offset 8
+               OpMemberDecorate %BwdParams_std140 3 Offset 12
+               OpDecorate %bwd_params Binding 3
+               OpDecorate %bwd_params DescriptorSet 0
+               OpDecorate %_runtimearr_float ArrayStride 4
+               OpDecorate %StructuredBuffer BufferBlock
+               OpMemberDecorate %StructuredBuffer 0 Offset 0
+               OpDecorate %bwd_x Binding 0
+               OpDecorate %bwd_x DescriptorSet 0
+               OpDecorate %bwd_x NonWritable
+               OpDecorate %bwd_up Binding 1
+               OpDecorate %bwd_up DescriptorSet 0
+               OpDecorate %bwd_up NonWritable
+               OpDecorate %RWStructuredBuffer BufferBlock
+               OpMemberDecorate %RWStructuredBuffer 0 Offset 0
+               OpDecorate %bwd_grad_x Binding 2
+               OpDecorate %bwd_grad_x DescriptorSet 0
+       %void = OpTypeVoid
+          %3 = OpTypeFunction %void
+      %float = OpTypeFloat 32
+       %uint = OpTypeInt 32 0
+     %v3uint = OpTypeVector %uint 3
+%_ptr_Input_v3uint = OpTypePointer Input %v3uint
+%BwdParams_std140 = OpTypeStruct %uint %uint %uint %uint
+%_ptr_Uniform_BwdParams_std140 = OpTypePointer Uniform %BwdParams_std140
+        %int = OpTypeInt 32 1
+      %int_0 = OpConstant %int 0
+%_ptr_Uniform_uint = OpTypePointer Uniform %uint
+       %bool = OpTypeBool
+%_ptr_Uniform_float = OpTypePointer Uniform %float
+%_runtimearr_float = OpTypeRuntimeArray %float
+%StructuredBuffer = OpTypeStruct %_runtimearr_float
+%_ptr_Uniform_StructuredBuffer = OpTypePointer Uniform %StructuredBuffer
+    %float_1 = OpConstant %float 1
+%RWStructuredBuffer = OpTypeStruct %_runtimearr_float
+%_ptr_Uniform_RWStructuredBuffer = OpTypePointer Uniform %RWStructuredBuffer
+%gl_GlobalInvocationID = OpVariable %_ptr_Input_v3uint Input
+ %bwd_params = OpVariable %_ptr_Uniform_BwdParams_std140 Uniform
+      %bwd_x = OpVariable %_ptr_Uniform_StructuredBuffer Uniform
+     %bwd_up = OpVariable %_ptr_Uniform_StructuredBuffer Uniform
+ %bwd_grad_x = OpVariable %_ptr_Uniform_RWStructuredBuffer Uniform
+     %uint_0 = OpConstant %uint 0
+%silu_backward = OpFunction %void None %3
+          %4 = OpLabel
+               OpSelectionMerge %152 None
+               OpSwitch %uint_0 %153
+        %153 = OpLabel
+         %13 = OpLoad %v3uint %gl_GlobalInvocationID
+          %i = OpCompositeExtract %uint %13 0
+         %23 = OpAccessChain %_ptr_Uniform_uint %bwd_params %int_0
+         %24 = OpLoad %uint %23
+         %26 = OpUGreaterThanEqual %bool %i %24
+               OpSelectionMerge %10 None
+               OpBranchConditional %26 %9 %10
+          %9 = OpLabel
+               OpBranch %152
+         %10 = OpLabel
+         %30 = OpAccessChain %_ptr_Uniform_float %bwd_x %int_0 %i
+         %35 = OpLoad %float %30
+         %39 = OpAccessChain %_ptr_Uniform_float %bwd_up %int_0 %i
+         %41 = OpLoad %float %39
+        %179 = OpFNegate %float %35
+        %197 = OpExtInst %float %90 Exp %179
+        %184 = OpFAdd %float %float_1 %197
+        %185 = OpFMul %float %184 %184
+        %186 = OpFDiv %float %41 %185
+        %187 = OpFNegate %float %186
+        %188 = OpFMul %float %35 %187
+        %189 = OpFMul %float %184 %186
+        %212 = OpExtInst %float %90 Exp %179
+        %213 = OpFMul %float %212 %188
+        %193 = OpFSub %float %189 %213
+        %144 = OpAccessChain %_ptr_Uniform_float %bwd_grad_x %int_0 %i
+               OpStore %144 %193
+               OpBranch %152
+        %152 = OpLabel
+               OpReturn
+               OpFunctionEnd

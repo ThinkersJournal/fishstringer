@@ -20,5 +20,7 @@
 //!   (default: `spv/` next to `kernels/`).
 //! - `kernels/hoist_extinst_imports.py` (tested by `test_hoist_extinst_imports.py`): hoists
 //!   `OpExtInstImport` out of function bodies in `slangc` output.
+//! - `kernels/spv_equiv.py` (tested by `test_spv_equiv.py`): decides whether two SPIR-V modules are equivalent up to
+//!   debug records, id numbering and the order of independent instructions; the gate for a regenerated `.spv`.
 //! - `kernels/no_contraction.py`: decorates a kernel's float arithmetic `NoContraction` when the source
 //!   carries a `// no-contraction` comment.
