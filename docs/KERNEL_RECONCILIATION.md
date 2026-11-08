@@ -57,5 +57,8 @@ by the arithmetic check", not "both test suites passed".**
   `ggml/src/ggml-impl.h` at `9d57ce456c` (1,784 distinct reference lines): **0 shared lines in every file.** Control: a
   50-line slice of the reference compared with itself finds 50 of 50. Limits: it finds copied lines, not translation
   (the Q6_K and Q4_K kernels are translations and are dispositioned in `THIRD-PARTY-NOTICES.md`); it does not cover
-  llama.cpp's `ggml-vulkan/vulkan-shaders/` (where Vulkane found the one sigmoid line in `unary.slang`) or candle, which
-  were measured by Vulkane on the pre-copy files and not re-run on the 30 later ones.
+  llama.cpp's `ggml-vulkan/vulkan-shaders/` (where Vulkane found the one sigmoid line in `unary.slang`).
+  **Candle, re-run 2026-11-07 on all 150 `.slang`/`.slangh` files (so including the 30 Fuel added or changed after
+  the copy), same method:** against candle `cfcbd7186d` (176 `.cu`, `.cuh`, `.metal` and `.wgsl` files, 11,214 distinct
+  reference lines): **0 shared lines in every file.** Control: 50 reference lines compared with themselves find 50 of 50.
+  It cannot see translation (a line rewritten into Slang syntax shares no text), only copied lines.
