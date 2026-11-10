@@ -63,7 +63,7 @@ jobs:
 
   # `fishstringer-slang-emit`'s slangc-gated test and its `convert` feature. slangc is the Slang project's own
   # release, pinned by version AND sha256 (the digest GitHub records for the asset; re-computed by hand from a
-  # download on 2026-10-30, identical). The test is fatal without slangc because FISHSTRINGER_REQUIRE_SLANGC is set.
+  # download on 2026-11-09 for 2026.21, identical). The test is fatal without slangc because FISHSTRINGER_REQUIRE_SLANGC is set.
   slang-emit:
     name: fishstringer-slang-emit (pinned slangc)
     runs-on: ubuntu-latest
@@ -76,15 +76,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          v=2026.20
-          sha=e863e568c204810d6e8bc31852f056aef6763c55ea9925db2db7affa060347c9
+          v=2026.21
+          sha=691f9341e5bec099eec97ee30a83bcbef541cee7fe3b4de68a821d42f9506c2f
           curl -fsSL -o slang.tar.gz "https://github.com/shader-slang/slang/releases/download/v${v}/slang-${v}-linux-x86_64.tar.gz"
           echo "${sha}  slang.tar.gz" | sha256sum -c -
           mkdir slang && tar xzf slang.tar.gz -C slang
           echo "$PWD/slang/bin" >> "$GITHUB_PATH"
       - name: slangc runs and is the pinned version
         shell: bash
-        run: slangc -v 2>&1 | tee /dev/stderr | grep -q '2026.20'
+        run: slangc -v 2>&1 | tee /dev/stderr | grep -q '2026.21'
       - name: Test fishstringer-slang-emit
         shell: bash
         env:
@@ -119,6 +119,8 @@ jobs:
         run: python3 -m unittest test_no_contraction
       - name: spv_equiv equivalence-check tests
         run: python3 -m unittest test_spv_equiv
+      - name: regen_gate tests
+        run: python3 -m unittest test_regen_gate
 
   deny:
     name: cargo deny (advisories, licences, bans, sources)
