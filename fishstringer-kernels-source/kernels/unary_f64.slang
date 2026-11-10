@@ -346,7 +346,7 @@ void main(uint3 gid : SV_DispatchThreadID)
         double inner = 0.7978845608028654L * (x + 0.044715L * x * x * x);
         y = 0.5L * x * (1.0L + poly_tanh_d(inner));
     } else if (op == 11u) {
-        y = max(x, 0.0L);                                        // Relu
+        y = isnan(x) ? x : max(x, 0.0L);   // Relu; NaN propagates (FMax would drop it)
     } else if (op == 12u) {
         y = (x > 0.0L) ? 1.0L : 0.0L;                            // Step
     } else if (op == 13u) {

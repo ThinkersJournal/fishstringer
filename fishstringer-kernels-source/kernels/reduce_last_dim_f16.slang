@@ -41,12 +41,19 @@ float identity_of(uint op) {
 
 float combine(uint op, float a, float b) {
     if (op == 0u) return a + b;
-    if (op == 1u) return max(a, b);
-    if (op == 2u) return min(a, b);
+    if (op == 1u) return isnan(a) ? a : (isnan(b) ? b : max(a, b));
+    if (op == 2u) return isnan(a) ? a : (isnan(b) ? b : min(a, b));
     return a + b;                       // mean accumulates as sum
 }
 
+// NaN: Vulkan's FMax/FMin drop a NaN operand; Fuel pins NaN-propagating (torch parity), as binary.slang does.
 float subgroup_reduce(uint op, float x) {
+    if (op == 1u || op == 2u) {
+        // WaveActiveMax/Min drop a NaN too: summing only the NaNs (others 0) is NaN iff some lane holds one.
+        // Uses the same arithmetic subgroup op as the sum path (no extra capability); a signalling NaN may come back quiet.
+        float nan_sum = WaveActiveSum(isnan(x) ? x : (float)0);
+        if (isnan(nan_sum)) return nan_sum;
+    }
     if (op == 0u) return WaveActiveSum(x);
     if (op == 1u) return WaveActiveMax(x);
     if (op == 2u) return WaveActiveMin(x);

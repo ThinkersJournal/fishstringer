@@ -62,7 +62,7 @@ float apply(uint op, float x) {
         float inner = 0.7978845608 * (x + 0.044715 * x * x * x);
         return 0.5 * x * (1.0 + tanh(inner));
     }
-    if (op == 11u) return max(x, 0.0);                               // Relu
+    if (op == 11u) return isnan(x) ? x : max(x, 0.0);   // Relu; NaN propagates (FMax would drop it)
     if (op == 12u) return (x > 0.0) ? 1.0 : 0.0;                     // Step
     if (op == 13u) return abs(x);                                    // Abs
     if (op == 14u) return sign(x);                                   // Sign
