@@ -1,7 +1,7 @@
 # fishstringer roadmap
 
 Owner: the `fishstringer` lane. Priorities across the portfolio live in `C:\Projects\PORTFOLIO-ROADMAP.md`; this file is
-this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-07 (main + 0.0.14).
+this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-10 (main + 0.0.15); the shipped `.spv` stay at slangc 2026.8 (PM ruling 2026-11-10).
 
 ## Done
 
@@ -21,11 +21,18 @@ this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-07 (m
 
 | Row | What | Blocked on |
 |---|---|---|
-| 10 | Consumers wire `spv_equiv.py` into their regeneration gate (Fuel: committed `.spv` vs a pinned regen) | Fuel's lane; nothing here |
+| 10 | Consumers wire `kernels/regen_gate.py` (pins slangc, regenerates, `spv_equiv.py` against committed `.spv`, exits non-zero on a difference) into their regeneration gate | Fuel's and Vulkane's lanes; the script is here |
 | 11 | Handle live-test failures on kernels Fuel or Vulkane report (unary_f64, softmax_f64, the 26 stride-fix kernels) | a consumer report |
 | 12 | Old crates `vulkane-slang-*` and `unpopped-slang`: the final redirect release | the PM and the owning lanes |
 | 13 | Unpopped's Slang docs and corpus example move here or stay | Unpopped's call |
 | 14 | `dequant_q4_km`: Fuel's committed `.spv` is not what `slangc` 2026.8 makes from Fuel's own source (see `docs/KERNEL_RECONCILIATION.md`); Fuel's regeneration replaced it, nothing to do here unless a live test objects | Fuel's live test |
+
+## Open decision (PM)
+
+slangc 2026.21 (newest, 2026-11-04) vs the 2026.8 the shipped `.spv` come from: of 153 kernels 93 identical, 39
+equivalent, 21 different; every one of the 21 differs only in `OpExtInst` `FMax`/`FMin` becoming `NMax`/`NMin` (the
+NaN-propagation behaviour of `max`/`min` changes; `spirv-val` passes). Not adopted for the shipped output until the PM
+decides: ruled 2026-11-10 to keep the shipped output at 2026.8 until Fuel says which max/min semantics its kernels need. Measured 2026-11-09, `compile.sh` + `regen_gate.py`.
 
 ## Not doing
 

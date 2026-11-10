@@ -37,4 +37,19 @@ different, and numeric agreement stays the consumer's live test. Measured 2026-1
 against Fuel's previously committed files: 152 of 153 equivalent, 1 different (`dequant_q4_km`, whose committed file is
 not what `slangc` 2026.8 makes from Fuel's own source). Tests: `python3 -m unittest test_spv_equiv` from `kernels/`.
 
+## Regeneration gate: `kernels/regen_gate.py`
+
+For a consumer that commits its own `.spv` (Fuel, Vulkane). Drop `regen_gate.py` in next to `compile.sh` (or call it from
+the published crate's `kernels/`) and run:
+
+    python regen_gate.py --committed path/to/committed/spv --slangc-version 2026.21 [--src-dir DIR] [--report out.txt]
+
+It (1) refuses unless `compile.sh --print-toolchain` reports exactly that `slangc` (from `$SLANGC` or the Vulkan SDK),
+(2) regenerates every output into a temporary directory, (3) compares each with the committed file of the same name and
+reports it as `identical`, `equivalent`, `different`, `undecidable`, `missing` (made, not committed) or `extra`
+(committed, no longer made). Exit 0: all identical or equivalent. 1: a difference, missing or extra. 2: it could not
+decide (toolchain not the pinned one, compile failure, `spv_equiv.py` refused, `spirv-dis` absent). A refusal is never a
+pass. `--regen-dir DIR` compares an already-regenerated directory instead of running the toolchain. Same limits as
+`spv_equiv.py`: structural, not a proof, runs nothing on a device. Tests: `python3 -m unittest test_regen_gate`.
+
 Third-party origins: `THIRD-PARTY-NOTICES.md`.

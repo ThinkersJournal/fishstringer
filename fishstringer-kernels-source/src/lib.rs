@@ -22,5 +22,7 @@
 //!   `OpExtInstImport` out of function bodies in `slangc` output.
 //! - `kernels/spv_equiv.py` (tested by `test_spv_equiv.py`): decides whether two SPIR-V modules are equivalent up to
 //!   debug records, id numbering and the order of independent instructions; the gate for a regenerated `.spv`.
+//! - `kernels/regen_gate.py` (tested by `test_regen_gate.py`): pins `slangc`, regenerates, and compares a consumer's
+//!   committed `.spv` with `spv_equiv.py`; exits non-zero on a difference.
 //! - `kernels/no_contraction.py`: decorates a kernel's float arithmetic `NoContraction` when the source
 //!   carries a `// no-contraction` comment.
