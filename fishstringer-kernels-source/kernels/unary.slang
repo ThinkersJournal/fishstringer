@@ -102,7 +102,7 @@ void main(uint3 gid : SV_DispatchThreadID)
         case OP_SIGMOID: y = sigmoid(x); break;
         case OP_SILU:    y = x * sigmoid(x); break;
         case OP_GELU:    y = gelu_tanh(x); break;
-        case OP_RELU:    y = max(x, 0.0f); break;
+        case OP_RELU:    y = isnan(x) ? x : max(x, 0.0f); break;   // NaN propagates (FMax would drop it)
         case OP_STEP:    y = x > 0.0f ? 1.0f : 0.0f; break;
         case OP_ABS:     y = abs(x); break;
         case OP_SIGN:    y = sign(x); break;

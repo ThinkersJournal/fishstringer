@@ -40,7 +40,7 @@ float16_t apply(uint op, float16_t x) {
         return float16_t(0.5) * x
             * (float16_t(1.0) + tanh(k0 * (x + k1 * x * x * x)));
     }
-    if (op == 11u) return max(x, float16_t(0.0));            // Relu
+    if (op == 11u) return isnan(x) ? x : max(x, float16_t(0.0));  // Relu; NaN propagates (FMax would drop it)
     if (op == 12u) return (x > float16_t(0.0)) ? float16_t(1.0) : float16_t(0.0);  // Step
     if (op == 13u) return abs(x);                            // Abs
     if (op == 14u) return float16_t(sign(x));                // Sign (explicit cast: Slang's sign(half) returns int)

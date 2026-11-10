@@ -33,12 +33,13 @@ float identity(uint op) {
     }
 }
 
+// NaN: Vulkan's FMax/FMin drop a NaN operand; Fuel pins NaN-propagating (torch parity), as binary.slang does.
 float combine(uint op, float a, float b) {
     switch (op) {
         case OP_SUM:  return a + b;
         case OP_MEAN: return a + b;
-        case OP_MAX:  return max(a, b);
-        case OP_MIN:  return min(a, b);
+        case OP_MAX:  return isnan(a) ? a : (isnan(b) ? b : max(a, b));
+        case OP_MIN:  return isnan(a) ? a : (isnan(b) ? b : min(a, b));
         default:      return a;
     }
 }
