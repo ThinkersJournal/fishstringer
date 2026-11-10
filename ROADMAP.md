@@ -1,7 +1,7 @@
 # fishstringer roadmap
 
 Owner: the `fishstringer` lane. Priorities across the portfolio live in `C:\Projects\PORTFOLIO-ROADMAP.md`; this file is
-this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-07 (main + 0.0.14).
+this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-10 (main + 0.0.15); the shipped `.spv` stay at slangc 2026.8 (PM ruling 2026-11-10).
 
 ## Done
 
@@ -32,7 +32,7 @@ this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-07 (m
 slangc 2026.21 (newest, 2026-11-04) vs the 2026.8 the shipped `.spv` come from: of 153 kernels 93 identical, 39
 equivalent, 21 different; every one of the 21 differs only in `OpExtInst` `FMax`/`FMin` becoming `NMax`/`NMin` (the
 NaN-propagation behaviour of `max`/`min` changes; `spirv-val` passes). Not adopted for the shipped output until the PM
-decides the version and the consumers' live tests agree. Measured 2026-11-09, `compile.sh` + `regen_gate.py`.
+decides: ruled 2026-11-10 to keep the shipped output at 2026.8 until Fuel says which max/min semantics its kernels need. Measured 2026-11-09, `compile.sh` + `regen_gate.py`.
 
 ## Not doing
 
