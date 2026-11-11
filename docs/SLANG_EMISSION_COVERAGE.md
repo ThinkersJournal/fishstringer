@@ -68,4 +68,4 @@ E12, E13 and probably E10; E15 only for the tensor-core variants.
 1. Additive `KernelInterface` (entry, `numthreads`, bindings, params block) on `GeneratedKernel`: yes, and what shape?
 2. Can `Extent::Param` and `GridDim` be bound when `lower_kernel` is called, or only at launch?
 3. An optional unroll/loop hint on `Stmt::For` (non-semantic)?
-4. Is there a frontend that lifts CUDA (`decode.cuh`) into `KernelFn`, or is E13's IR kernel hand-written? (This doc assumes hand-written; a lifter is a separate, larger project that is not a fishstringer row.)
+4. Does `decode.cuh` lift into `KernelFn`? Unpopped has idiom lifters (`crates/unpopped/src/kernel_lift/`: block_reduce, gather, scan, row_reduce, scatter, window, im2col, row_sort) and `docs/idiom-lifting-design.md`; I did **not** measure whether any of them reaches FlashInfer's paged decode. E13 assumes a hand-written IR kernel until Unpopped says otherwise.
