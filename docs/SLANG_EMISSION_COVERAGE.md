@@ -63,9 +63,23 @@ E11, E14, E18 are independent of each other once E3 exists; E9 needs E5+E7+E8; E
 E15 and E16 last. E17 can run any time. FlashInfer paged decode is expected to need E2, E4, E5, E7, E8, E9, E11 (f16/bf16),
 E12, E13 and probably E10; E15 only for the tensor-core variants.
 
-## 5. Open questions for Unpopped (owns `Backend` and the IR)
+## 5. Unpopped's answers (message from the unpopped lane, 2026-11-11; Unpopped origin/main 0948bcd7)
 
-1. Additive `KernelInterface` (entry, `numthreads`, bindings, params block) on `GeneratedKernel`: yes, and what shape?
-2. Can `Extent::Param` and `GridDim` be bound when `lower_kernel` is called, or only at launch?
-3. An optional unroll/loop hint on `Stmt::For` (non-semantic)?
-4. Does `decode.cuh` lift into `KernelFn`? Unpopped has idiom lifters (`crates/unpopped/src/kernel_lift/`: block_reduce, gather, scan, row_reduce, scatter, window, im2col, row_sort) and `docs/idiom-lifting-design.md`; I did **not** measure whether any of them reaches FlashInfer's paged decode. E13 assumes a hand-written IR kernel until Unpopped says otherwise.
+1. **`KernelInterface` on `GeneratedKernel`:** an additive field is non-breaking (`GeneratedKernel` is `#[non_exhaustive]`
+   with private fields, `GeneratedKernel::new(name, source)`; CpuC spells its calling convention only in the C text).
+   Unpopped's sketch: entry, workgroup from `LaunchShape.block`, grid, subgroup, bindings (param index, name, element,
+   role, rank), scalar params (local, type), dynamic Shared allocs (alloc, param local), set by a builder. **The API shape
+   is the PM's to rule** (Unpopped has sent the PM an [ASK]); **row 17 does not build against the sketch until that ruling.**
+2. **`GridDim`:** yes, grid and block are numbers in `KernelFn.launch`, visible to `lower_kernel`. **`Extent::Param`: no**,
+   it is a scalar kernel parameter fixed per launch, not known at lower time. For static `groupshared` the choice (refuse,
+   specialization constant, or a variant per size) is the emitter's; a refusal is a gap row on our side (E6 stands as written,
+   with the "bound at pipeline build" wording read as "per launch, so a specialization constant or per-size variant").
+3. **Unroll hint on `Stmt::For`:** none exists (the schedule language is ROADMAP P9, deferred). A non-semantic field on
+   `For` is the clean shape but `Stmt` is exhaustive, so it is a **breaking** change (size S-M), going to the PM with Q1.
+   E4 emits no hints until then.
+4. **CUDA lifting:** **no CUDA to `KernelFn` lifter exists.** `convert.rs` lifts only elementwise/reduction/scan idioms and
+   refuses `__shared__`, `__shfl`, `asm`, `cp.async` and barriers. Unpopped's `paged_attention`
+   (`crates/unpopped/tests/support/attention.rs`, U10 A4) is hand-written: one thread per sequence, f32, no shared memory
+   or shuffles, and **not a port of `decode.cuh`**. A body lifter (XL) is being scheduled by Unpopped after its #332 and S4.
+   Consequence for E13: the paged-gather row can be tested on that hand-written kernel, but emitting the FlashInfer decode
+   itself waits on the lifter, or on a hand-written IR port of `decode.cuh` (not planned by anyone yet).
