@@ -1,7 +1,7 @@
 # fishstringer roadmap
 
 Owner: the `fishstringer` lane. Priorities across the portfolio live in `C:\Projects\PORTFOLIO-ROADMAP.md`; this file is
-this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-10 (main + 0.0.17); the shipped `.spv` stay at slangc 2026.8 (PM ruling 2026-11-10).
+this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-11 (main + 0.0.17); the shipped `.spv` stay at slangc 2026.8 (PM ruling 2026-11-10).
 
 ## Done
 
@@ -16,6 +16,7 @@ this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-10 (m
 | 7 | Consumers switched: Vulkane on `~0.0.13` and deleting its copies (vulkane#148, #149); Fuel regenerated its 153 `.spv` from 0.0.13 (fuel#636, byte-equal to our tree) | consumer repos |
 | 8 | Provenance: line overlap against llama.cpp (0 shared lines) and candle (0 shared lines in 150 files) | `docs/KERNEL_RECONCILIATION.md` |
 | 9 | `spv_equiv.py`: a SPIR-V equivalence check that ignores debug records, id numbering and the order of instructions that cannot interact, so a consumer can gate a regeneration without a byte-compare | `kernels/spv_equiv.py`, `kernels/test_spv_equiv.py` (0.0.14) |
+| 12 | `vulkane-slang-emit` and `-parse` 0.22.0 redirect crates published over `fishstringer-slang` 0.0.17 (tag v0.22.0; PM notice 2026-11-11; crates.io max_version 0.22.0 for both) | Vulkane, the PM |
 | 15 | Unpopped's three Slang sizing docs and the corpus harness moved here (`fishstringer-slang-parse/examples/slang_corpus_report.rs`); `regen_gate.py` (pins slangc, regenerates, compares) | #12, #13 |
 | 16 | NaN guards: `isnan` select in `unary*` (relu), `reduce*`, `reduce_last_dim*` (incl. the Wave path), because slangc 2026.8's `FMax`/`FMin` drop NaN (Fuel measured 72 of 72 cases on Vulkan) and Fuel pins NaN-propagating; regenerated at 2026.8, 12 kernels differ on purpose (0.0.17) | PR for 0.0.17 |
 
@@ -25,7 +26,6 @@ this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-10 (m
 |---|---|---|
 | 10 | Consumers wire `kernels/regen_gate.py` (pins slangc, regenerates, `spv_equiv.py` against committed `.spv`, exits non-zero on a difference) into their regeneration gate | Fuel's lane (Vulkane commits no `.spv`); the script is here (#12) |
 | 11 | Handle live-test failures on kernels Fuel or Vulkane report (unary_f64, softmax_f64, the 26 stride-fix kernels) | a consumer report |
-| 12 | `vulkane-slang-*` redirect release: Vulkane prepares 0.22.x re-exporting `fishstringer-*`, the PM publishes (`unpopped-slang` 0.35.4 redirect is published) | Vulkane's PR, the PM |
 | 13 | Re-verify the 17 `n_sg` kernels on a subgroup-size-8 device (fishstringer#14; the source already has the stride fix) | Vulkane's Lavapipe test |
 | 14 | `dequant_q4_km`: Fuel's committed `.spv` is not what `slangc` 2026.8 makes from Fuel's own source (see `docs/KERNEL_RECONCILIATION.md`); Fuel's regeneration replaced it, nothing to do here unless a live test objects | Fuel's live test |
 
