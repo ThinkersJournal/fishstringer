@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.0.19 — ROADMAP row 12 done (redirect crates published)
+
+Moves ROADMAP row 12 to Done: `vulkane-slang-emit` and `vulkane-slang-parse` 0.22.0 are on crates.io over `fishstringer-slang` 0.0.17 (PM notice 2026-11-11; crates.io max_version 0.22.0 for both). Docs only.
+
 ## 0.0.18 — changelog fragments and `tools/stamp-version.py`
 
 The repository adopts the portfolio's fragment-plus-stamp flow (PM task 2026-11-12): a PR adds one `changelog.d/<topic>.md`
