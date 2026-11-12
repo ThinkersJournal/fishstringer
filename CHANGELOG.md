@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.0.21 — refresh the changelog tools to kit v3
+
+Re-copies `tools/stamp-version.py` and `tools/check-fragment.py` from the portfolio kit (refactored after Codacy flagged the first copies: bandit subprocess use, cyclomatic complexity). No change in behaviour. Tooling only; no crate code changes.
+
 ## 0.0.18 — changelog fragments and `tools/stamp-version.py`
 
 The repository adopts the portfolio's fragment-plus-stamp flow (PM task 2026-11-12): a PR adds one `changelog.d/<topic>.md`
