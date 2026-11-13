@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.1.0 — **BREAKING**: repin unpopped to 0.45.12; patent-flagged statements decline by name
+
+`fishstringer-slang-emit` and `fishstringer-slang-parse` move from `unpopped` 0.43.2 to 0.45.12 (the release with `KernelInterface`, unblocking ROADMAP row 17); `cargo test --workspace` passes unchanged. `Slang::lower_kernel` now declines `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective` and `CollectiveTuple` by name (board 434 ruling C: Slang to SPIR-V is non-NVIDIA), reason naming `docs/PATENT_SWEEP.md`. Tested for `AsyncCommit` and `AsyncWait`; the `CopyAsync` and `Collective` arms are untested (no test builds one).
+
 ## 0.0.22 — Slang target gaps are named typed declines
 
 `Slang::lower_kernel` now declines dynamic shared extent, device/cluster-scope barriers, cluster-scope fence/atomic and sparse or block-scaled `Mma` with `UnsupportedKernel` whose reason starts with the new `GAP_PREFIX`; listed in the crate README (doc row E18, ROADMAP row 19, first part). Verified by `tests/slang_target_gaps_are_typed_declines.rs` (5 tests, including the no-gap control). Not covered: `Mma` atoms (no test builds one), peer/cluster places and `devices > 1` (need unpopped newer than 0.43.2).

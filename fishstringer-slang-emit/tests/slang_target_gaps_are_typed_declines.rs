@@ -71,3 +71,13 @@ fn a_block_barrier_is_not_a_gap() {
     k.body.0.push(Stmt::barrier(Scope::Block));
     assert!(!decline(&k).starts_with(GAP_PREFIX));
 }
+
+#[test]
+fn the_patent_flagged_async_statements_decline_by_name() {
+    for st in [Stmt::AsyncCommit, Stmt::AsyncWait { pending: 0 }] {
+        let mut k = empty();
+        k.body.0.push(st);
+        gap(&k, "async copy statement");
+        gap(&k, "PATENT_SWEEP");
+    }
+}
