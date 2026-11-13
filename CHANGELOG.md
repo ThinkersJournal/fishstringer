@@ -8,6 +8,8 @@ were published to crates.io.
 
 Re-copies `tools/stamp-version.py` and `tools/check-fragment.py` from the portfolio kit (refactored after Codacy flagged the first copies: bandit subprocess use, cyclomatic complexity). No change in behaviour. Tooling only; no crate code changes.
 
+Also adds `docs/SLANG_EMISSION_COVERAGE.md` (PR #20, merged unstamped; folded here at the PM's request): what `fishstringer-slang-emit` lowers today (scalar contiguous Elementwise only; `lower_kernel` is the typed decline) and one row per construct family it would need to emit everything Slang can express, with owner, size, the test that will show it and the typed decline for what Slang cannot express. ROADMAP rows 17 to 19. Docs only; spellings marked probe are unverified until slangc and a device run.
+
 ## 0.0.19 — ROADMAP row 12 done (redirect crates published)
 
 Moves ROADMAP row 12 to Done: `vulkane-slang-emit` and `vulkane-slang-parse` 0.22.0 are on crates.io over `fishstringer-slang` 0.0.17 (PM notice 2026-11-11; crates.io max_version 0.22.0 for both). Docs only.
