@@ -28,6 +28,9 @@ this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-11 (m
 | 11 | Handle live-test failures on kernels Fuel or Vulkane report (unary_f64, softmax_f64, the 26 stride-fix kernels) | a consumer report |
 | 13 | Re-verify the 17 `n_sg` kernels on a subgroup-size-8 device (fishstringer#14; the source already has the stride fix) | Vulkane's Lavapipe test |
 | 14 | `dequant_q4_km`: Fuel's committed `.spv` is not what `slangc` 2026.8 makes from Fuel's own source (see `docs/KERNEL_RECONCILIATION.md`); Fuel's regeneration replaced it, nothing to do here unless a live test objects | Fuel's live test |
+| 17 | Slang `lower_kernel`: shape agreed with Unpopped (additive interface on `GeneratedKernel`), buffer addressing through views, differential harness (oracle / CpuC / device). Doc rows E1-E3 | Unpopped's answer on the interface (`docs/SLANG_EMISSION_COVERAGE.md` section 5) |
+| 18 | Slang emission of the kernel-layer constructs Slang can express, one row per family in `docs/SLANG_EMISSION_COVERAGE.md`: control flow (E4), `groupshared` static (E5) and dynamic (E6), barriers (E7), wave collectives (E8), block collectives (E9), atomics (E10), f16/bf16/packed (E11), multi-dim ids (E12), paged gather (E13), async copy as sync copy (E14), `Mma` (E15), calls/externs (E16), elementwise leftovers (E17) | row 17; E10/E11/E15 also capability data (E19) from Vulkane/KISS |
+| 19 | The recorded gaps of the Slang target, each a typed `UnsupportedKernel` decline with a test (cluster/peer places, device and cluster barriers, multi-device, run-time dynamic shared extent, sparse/scaled `Mma`); listed in the crate README. Doc row E18 | none; can land first |
 
 ## Open decision (PM)
 
