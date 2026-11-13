@@ -24,7 +24,9 @@ pub(crate) fn first_gap(kernel: &KernelFn) -> Option<String> {
 
 fn scope_gap(what: &str, scope: Scope) -> Option<String> {
     match scope {
-        Scope::Cluster => Some(format!("{what} at cluster scope: Vulkan compute has no thread-block clusters")),
+        Scope::Cluster => Some(format!(
+            "{what} at cluster scope: Vulkan compute has no thread-block clusters"
+        )),
         _ => None,
     }
 }
@@ -37,17 +39,28 @@ fn stmt_gap(s: &Stmt) -> Option<String> {
     match s {
         Stmt::Barrier { scope, .. } => {
             if *scope == Scope::Device {
-                return Some("device-scope barrier (grid sync): Vulkan compute has no grid-wide barrier".into());
+                return Some(
+                    "device-scope barrier (grid sync): Vulkan compute has no grid-wide barrier"
+                        .into(),
+                );
             }
             scope_gap("barrier", *scope)
         }
         Stmt::Fence { scope, .. } => scope_gap("fence", *scope),
-        Stmt::AtomicRmw { scope, .. } | Stmt::AtomicCas { scope, .. } => scope_gap("atomic", *scope),
+        Stmt::AtomicRmw { scope, .. } | Stmt::AtomicCas { scope, .. } => {
+            scope_gap("atomic", *scope)
+        }
         Stmt::Mma { atom, .. } => {
             if atom.is_sparse() {
-                Some(format!("sparse (2:4) Mma atom `{}`: no Slang spelling", atom.name()))
+                Some(format!(
+                    "sparse (2:4) Mma atom `{}`: no Slang spelling",
+                    atom.name()
+                ))
             } else if atom.block().is_some() {
-                Some(format!("block-scaled Mma atom `{}`: no Slang spelling", atom.name()))
+                Some(format!(
+                    "block-scaled Mma atom `{}`: no Slang spelling",
+                    atom.name()
+                ))
             } else {
                 None
             }

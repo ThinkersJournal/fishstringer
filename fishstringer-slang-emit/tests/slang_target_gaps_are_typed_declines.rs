@@ -34,14 +34,24 @@ fn a_kernel_without_a_gap_gets_the_generic_decline_not_the_gap_prefix() {
 #[test]
 fn dynamic_shared_extent_declines() {
     let mut k = empty();
-    k.allocs.push(AllocDecl::new("tile", MemorySpace::Shared, ElementKind::F32, Extent::Param(0)));
+    k.allocs.push(AllocDecl::new(
+        "tile",
+        MemorySpace::Shared,
+        ElementKind::F32,
+        Extent::Param(0),
+    ));
     gap(&k, "dynamic shared extent");
 }
 
 #[test]
 fn a_static_shared_extent_is_not_a_gap() {
     let mut k = empty();
-    k.allocs.push(AllocDecl::new("tile", MemorySpace::Shared, ElementKind::F32, Extent::Static(64)));
+    k.allocs.push(AllocDecl::new(
+        "tile",
+        MemorySpace::Shared,
+        ElementKind::F32,
+        Extent::Static(64),
+    ));
     assert!(!decline(&k).starts_with(GAP_PREFIX));
 }
 
