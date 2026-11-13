@@ -4,7 +4,7 @@
 //! Peer/cluster *places* and `devices > 1` are not scanned yet: they need Unpopped variants crates.io lacks.
 
 use unpopped::exec::{Extent, Scope};
-use unpopped::kernel::{Block, KernelFn, Stmt};
+use unpopped::kernel::{Block, KernelFn, Place, Stmt};
 
 /// Every gap decline's reason starts with this, so a consumer can tell "outside the target" from "not taught yet".
 pub const GAP_PREFIX: &str = "slang target gap: ";
@@ -19,7 +19,31 @@ pub(crate) fn first_gap(kernel: &KernelFn) -> Option<String> {
             ));
         }
     }
+    if let Some(l) = &kernel.launch {
+        if l.devices > 1 {
+            return Some(format!(
+                "multi-device launch ({} devices): Vulkan compute launches on one device",
+                l.devices
+            ));
+        }
+        if l.cluster.is_some() {
+            return Some("cluster launch: Vulkan compute has no thread-block clusters".into());
+        }
+    }
     block_gap(&kernel.body)
+}
+
+fn place_gap(p: &Place) -> Option<String> {
+    match p {
+        Place::ClusterPeer { .. } => {
+            Some("cluster-peer place (distributed shared memory): Vulkan compute has none".into())
+        }
+        Place::Peer { .. } => {
+            Some("peer-device place: Vulkan compute has no peer-device addressing".into())
+        }
+        Place::Multicast { .. } => Some("multicast place: Vulkan compute has no multimem".into()),
+        _ => None,
+    }
 }
 
 fn scope_gap(what: &str, scope: Scope) -> Option<String> {
@@ -54,6 +78,17 @@ fn stmt_gap(s: &Stmt) -> Option<String> {
             }
             scope_gap("barrier", *scope)
         }
+        Stmt::Load { place, .. }
+        | Stmt::Store { place, .. }
+        | Stmt::MaskedLoad { place, .. }
+        | Stmt::MaskedStore { place, .. }
+        | Stmt::AtomicRmw { place, .. }
+        | Stmt::AtomicCas { place, .. }
+            if place_gap(place).is_some() =>
+        {
+            place_gap(place)
+        }
+        Stmt::MulticastLoadReduce { .. } => Some("multicast load-reduce: Vulkan compute has no multimem".into()),
         Stmt::Fence { scope, .. } => scope_gap("fence", *scope),
         Stmt::AtomicRmw { scope, .. } | Stmt::AtomicCas { scope, .. } => {
             scope_gap("atomic", *scope)

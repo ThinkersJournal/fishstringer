@@ -29,7 +29,9 @@ its git history is preserved. It moved to FishStringer, which owns Slang, on 202
 - device-scope barrier (grid sync) and cluster-scope barrier, fence or atomic
 - sparse (2:4) and block-scaled `Mma` atoms
 
-Not yet scanned (need `unpopped` variants newer than 0.43.2): cluster/peer places, `devices > 1`, `CopyAsync` into a peer place.
+(Peer/cluster places and multi-device launches are covered below.)
 Today every other kernel also declines, with the generic reason (row 17 adds the lowering).
 
 Also declined by name (patent risk, board 434 ruling C; `docs/PATENT_SWEEP.md`): `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective`, `CollectiveTuple`. Slang to SPIR-V is a non-NVIDIA target.
+
+Also declined as target gaps (needs `unpopped` 0.45): cluster-peer, peer-device and multicast places, `MulticastLoadReduce`, launches with `devices > 1` or cluster dimensions.
