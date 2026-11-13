@@ -1,3 +1,3 @@
-kind: repin unpopped to 0.45.12; patent-flagged statements decline by name
+kind: **BREAKING**: repin unpopped to 0.45.12; patent-flagged statements decline by name
 ---
 `fishstringer-slang-emit` and `fishstringer-slang-parse` move from `unpopped` 0.43.2 to 0.45.12 (the release with `KernelInterface`, unblocking ROADMAP row 17); `cargo test --workspace` passes unchanged. `Slang::lower_kernel` now declines `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective` and `CollectiveTuple` by name (board 434 ruling C: Slang to SPIR-V is non-NVIDIA), reason naming `docs/PATENT_SWEEP.md`. Tested for `AsyncCommit` and `AsyncWait`; the `CopyAsync` and `Collective` arms are untested (no test builds one).
