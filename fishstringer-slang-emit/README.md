@@ -31,3 +31,5 @@ its git history is preserved. It moved to FishStringer, which owns Slang, on 202
 
 Not yet scanned (need `unpopped` variants newer than 0.43.2): cluster/peer places, `devices > 1`, `CopyAsync` into a peer place.
 Today every other kernel also declines, with the generic reason (row 17 adds the lowering).
+
+Also declined by name (patent risk, board 434 ruling C; `docs/PATENT_SWEEP.md`): `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective`, `CollectiveTuple`. Slang to SPIR-V is a non-NVIDIA target.
