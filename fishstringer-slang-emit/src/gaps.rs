@@ -37,6 +37,14 @@ fn block_gap(b: &Block) -> Option<String> {
 
 fn stmt_gap(s: &Stmt) -> Option<String> {
     match s {
+        // Held on board 434 = C (CireSnave 2026-11-13): Slang to SPIR-V is non-NVIDIA, so these four are declined by
+        // name. See docs/PATENT_SWEEP.md. A rule for what this target may ever emit, not a missing feature.
+        Stmt::CopyAsync { .. } | Stmt::AsyncCommit | Stmt::AsyncWait { .. } => Some(
+            "async copy statement (CopyAsync/AsyncCommit/AsyncWait): declined by name, patent risk, see docs/PATENT_SWEEP.md".into(),
+        ),
+        Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => Some(
+            "collective statement (Reduce/Scan/Shuffle/Vote/Broadcast, tuple forms): declined by name, patent risk, see docs/PATENT_SWEEP.md".into(),
+        ),
         Stmt::Barrier { scope, .. } => {
             if *scope == Scope::Device {
                 return Some(
