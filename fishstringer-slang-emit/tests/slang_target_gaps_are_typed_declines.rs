@@ -81,3 +81,56 @@ fn the_patent_flagged_async_statements_decline_by_name() {
         gap(&k, "PATENT_SWEEP");
     }
 }
+
+#[test]
+fn peer_cluster_and_multicast_places_decline() {
+    use unpopped::ir::ScalarExpr;
+    use unpopped::kernel::Place;
+    let zero = || ScalarExpr::Const(0.0);
+    let places = [
+        (
+            Place::Peer {
+                buffer: 0,
+                device: zero(),
+                coords: vec![zero()],
+            },
+            "peer-device",
+        ),
+        (
+            Place::ClusterPeer {
+                alloc: 0,
+                block: zero(),
+                index: zero(),
+            },
+            "cluster-peer",
+        ),
+        (
+            Place::Multicast {
+                buffer: 0,
+                coords: vec![zero()],
+            },
+            "multicast",
+        ),
+    ];
+    for (place, what) in places {
+        let mut k = empty();
+        k.body.0.push(Stmt::Store {
+            place,
+            value: zero(),
+        });
+        gap(&k, what);
+    }
+}
+
+#[test]
+fn multi_device_and_cluster_launches_decline_and_one_device_does_not() {
+    use unpopped::exec::LaunchShape;
+    let mut l = LaunchShape::new([1, 1, 1], [1, 1, 1]);
+    let one = empty().with_launch(l);
+    assert!(!decline(&one).starts_with(GAP_PREFIX));
+    l.devices = 2;
+    gap(&empty().with_launch(l), "multi-device");
+    l.devices = 1;
+    l.cluster = Some([2, 1, 1]);
+    gap(&empty().with_launch(l), "cluster launch");
+}
