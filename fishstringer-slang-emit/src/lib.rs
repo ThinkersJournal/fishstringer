@@ -68,12 +68,16 @@
 //! now spells them with `slang_const` (`asfloat(0x7f800000u)` and friends, the
 //! IEEE bit patterns), and finite constants still go through `const_lit` unchanged.
 
+mod gaps;
+pub use gaps::GAP_PREFIX;
+
 use unpopped::backend::{
     Backend, Decline, DeclinedOp, DtypeSupport, GeneratedKernel, LowerError, Lowering, Spelling,
     const_lit, lower_dag,
 };
 use unpopped::cfamily::{assert_no_int_div_or_const, dtype_tag};
 use unpopped::ir::{BinaryOp, ExprDag, ScalarExpr, UnaryOp};
+use unpopped::kernel::KernelFn;
 use unpopped::plan::{KernelPlan, Schedule};
 use unpopped_vocab::{ElementKind, TargetId};
 
@@ -285,6 +289,21 @@ impl Backend for Slang {
         "unpopped"
     }
 
+    fn lower_kernel(&self, kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
+        // Gaps first: a construct outside the target is named, not lumped in with "not taught yet" (row E18).
+        if let Some(gap) = gaps::first_gap(kernel) {
+            return Err(LowerError::UnsupportedKernel {
+                detail: format!("{}{gap} (kernel `{}`)", gaps::GAP_PREFIX, kernel.name),
+            });
+        }
+        Err(LowerError::UnsupportedKernel {
+            detail: format!(
+                "backend `{}` does not lower kernel-layer kernels (kernel `{}`)",
+                self.name(),
+                kernel.name
+            ),
+        })
+    }
     fn supports_dtype(&self, dtype: ElementKind, target: TargetId) -> DtypeSupport {
         dtype_ok(dtype, target)
     }
