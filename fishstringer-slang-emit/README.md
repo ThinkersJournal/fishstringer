@@ -19,3 +19,15 @@ Licensed under either of Apache-2.0 or MIT, at your option. Provenance: `THIRD-P
 
 History: this crate was `unpopped-slang` in Unpopped, then `vulkane-slang-emit` in Vulkane (same owner, same licence);
 its git history is preserved. It moved to FishStringer, which owns Slang, on 2026-11-07. The names and URLs changed.
+
+## Target boundary: kernels Slang declines
+
+`Slang::lower_kernel` refuses these with `LowerError::UnsupportedKernel`, reason starting `fishstringer_slang_emit::GAP_PREFIX`
+(`"slang target gap: "`), because Vulkan compute cannot express them:
+
+- run-time dynamic shared extent (`Extent::Param`)
+- device-scope barrier (grid sync) and cluster-scope barrier, fence or atomic
+- sparse (2:4) and block-scaled `Mma` atoms
+
+Not yet scanned (need `unpopped` variants newer than 0.43.2): cluster/peer places, `devices > 1`, `CopyAsync` into a peer place.
+Today every other kernel also declines, with the generic reason (row 17 adds the lowering).
