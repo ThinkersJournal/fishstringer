@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.1.1 — patent sweep note for async-copy lowering (docs)
+
+Adds `docs/PATENT_SWEEP.md`: the PM's notice on NVIDIA patents US12118382B2 / US11294713B2 (claim 1 quoted), and what this repo's only emitter (Slang to SPIR-V) does about `CopyAsync`/`AsyncCommit`/`AsyncWait`: row E14 lowers them to plain synchronous loads and stores, so no async-scheduling instruction is emitted. The shipped `.spv` and competitors' instruction sets were not examined. Also records the PM's barrier-aggregation notice (US8539204B2): E8 subgroup Reduce/Scan lower to one wave intrinsic (possible exposure, undecided), E9 block collectives use groupshared plus barriers; nothing is emitted today. Docs only.
+
 ## 0.1.0 — **BREAKING**: repin unpopped to 0.45.12; patent-flagged statements decline by name
 
 `fishstringer-slang-emit` and `fishstringer-slang-parse` move from `unpopped` 0.43.2 to 0.45.12 (the release with `KernelInterface`, unblocking ROADMAP row 17); `cargo test --workspace` passes unchanged. `Slang::lower_kernel` now declines `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective` and `CollectiveTuple` by name (board 434 ruling C: Slang to SPIR-V is non-NVIDIA), reason naming `docs/PATENT_SWEEP.md`. Tested for `AsyncCommit` and `AsyncWait`; the `CopyAsync` and `Collective` arms are untested (no test builds one).
