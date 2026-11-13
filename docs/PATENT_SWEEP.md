@@ -17,6 +17,19 @@ NVIDIA patents US12118382B2 and US11294713B2. Claim 1 (verbatim): *"prevent one 
 
 Typed decline by name: **not needed**, because there is no target instruction to decline. If an instruction ever appears, decline first (`UnsupportedKernel`, reason prefix `slang target gap: `, see `fishstringer-slang-emit/src/gaps.rs`).
 
+## Barrier aggregation: `Stmt::Collective` (PM notice 2026-11-13, CireSnave hit 23 ruling A)
+
+NVIDIA US8539204B2, claim 1 as relayed: receive a barrier aggregation instruction for a first thread; combine its value with an aggregation result; communicate the result to each thread; wait until all threads have received it before executing more instructions. Claim 13 adds a hardware "barrier instruction execution unit".
+
+| Doc row | Lowering | Single barrier-aggregation instruction? |
+|---|---|---|
+| E8, subgroup `Reduce` / `Scan` (also `Vote`, `Shuffle`, `Broadcast`) | One HLSL wave intrinsic each: `WaveActiveSum/Product/Min/Max/Bit*`, `WavePrefixSum/Product`, `WaveActiveAllTrue/AnyTrue/Ballot` (SPIR-V group-non-uniform operations). | **Possibly, and not for this lane to rule.** One instruction combines every lane's value and returns the result to each lane. Whether the hardware needs the "wait until all threads have received it" step is the device's, not ours to read from SPIR-V. |
+| E9, block `Reduce` / `Scan` / `ReduceWith` / tuple | Derived: per-subgroup wave intrinsic, then a `groupshared` combine and two barriers. | **No** for the block step (ordinary loads, stores and barriers); the per-subgroup step is the E8 case. |
+
+**Today nothing is emitted:** the emitter lowers no `Collective` (`lower_kernel` is the typed decline), so no output carries the instruction. The exposure begins when row 18 lands E8/E9.
+
+**Decision needed before row 18 lowers E8 `Reduce`/`Scan`:** decline them by name (`UnsupportedKernel`, reason `slang target gap: subgroup reduction/scan (patent risk, see docs/PATENT_SWEEP.md)`) or emit with the risk recorded. Not decided here; asked of the PM. `Shuffle`/`Vote`/`Broadcast` do not combine values with an aggregation result, so they are outside the quoted claim 1, which is a reading, not a finding.
+
 ## Rule for this repo
 
 Row E14 stays synchronous. Emitting any instruction or Vulkan extension feature that schedules a thread's copy asynchronously and holds that thread's later instructions back (for example a vendor async-copy or DMA-with-tag-wait extension) needs the PM and CireSnave first.
