@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.1.2 — Slang declines peer, cluster and multicast places and multi-device launches
+
+Completes ROADMAP row 19 / doc E18: `Slang::lower_kernel` declines `Place::ClusterPeer`, `Place::Peer`, `Place::Multicast`, `MulticastLoadReduce`, `devices > 1` and cluster launches with the `slang target gap: ` prefix. Tests: 3 new in `slang_target_gaps_are_typed_declines.rs` (8 pass), including the one-device control. Not covered: `Mma` sparse/scaled arms (no test builds an atom). Stacked on #23 (unpopped 0.45.12).
+
 ## 0.1.1 — patent sweep note for async-copy lowering (docs)
 
 Adds `docs/PATENT_SWEEP.md`: the PM's notice on NVIDIA patents US12118382B2 / US11294713B2 (claim 1 quoted), and what this repo's only emitter (Slang to SPIR-V) does about `CopyAsync`/`AsyncCommit`/`AsyncWait`: row E14 lowers them to plain synchronous loads and stores, so no async-scheduling instruction is emitted. The shipped `.spv` and competitors' instruction sets were not examined. Also records the PM's barrier-aggregation notice (US8539204B2): E8 subgroup Reduce/Scan lower to one wave intrinsic (possible exposure, undecided), E9 block collectives use groupshared plus barriers; nothing is emitted today. Docs only.
