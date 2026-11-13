@@ -28,7 +28,7 @@ NVIDIA US8539204B2, claim 1 as relayed: receive a barrier aggregation instructio
 
 **Today nothing is emitted:** the emitter lowers no `Collective` (`lower_kernel` is the typed decline), so no output carries the instruction. The exposure begins when row 18 lands E8/E9.
 
-**Decision needed before row 18 lowers E8 `Reduce`/`Scan`:** decline them by name (`UnsupportedKernel`, reason `slang target gap: subgroup reduction/scan (patent risk, see docs/PATENT_SWEEP.md)`) or emit with the risk recorded. Not decided here; asked of the PM. `Shuffle`/`Vote`/`Broadcast` do not combine values with an aggregation result, so they are outside the quoted claim 1, which is a reading, not a finding.
+**HELD on board 434 (PM notice 2026-11-13): until CireSnave rules (A emit with note, B decline by name, C emit for NVIDIA only and decline non-NVIDIA; the PM recommends C), the emitter emits nothing for `AsyncWait`/`CopyAsync`/`AsyncCommit`/`Collective`, and E8/E9 stay held; interim behaviour is to decline by name.** Earlier text: decision needed before row 18 lowers E8 `Reduce`/`Scan`:** decline them by name (`UnsupportedKernel`, reason `slang target gap: subgroup reduction/scan (patent risk, see docs/PATENT_SWEEP.md)`) or emit with the risk recorded. Not decided here; asked of the PM. `Shuffle`/`Vote`/`Broadcast` do not combine values with an aggregation result, so they are outside the quoted claim 1, which is a reading, not a finding.
 
 ## Rule for this repo
 
