@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.0.22 — Slang target gaps are named typed declines
+
+`Slang::lower_kernel` now declines dynamic shared extent, device/cluster-scope barriers, cluster-scope fence/atomic and sparse or block-scaled `Mma` with `UnsupportedKernel` whose reason starts with the new `GAP_PREFIX`; listed in the crate README (doc row E18, ROADMAP row 19, first part). Verified by `tests/slang_target_gaps_are_typed_declines.rs` (5 tests, including the no-gap control). Not covered: `Mma` atoms (no test builds one), peer/cluster places and `devices > 1` (need unpopped newer than 0.43.2).
+
 ## 0.0.21 — refresh the changelog tools to kit v3
 
 Re-copies `tools/stamp-version.py` and `tools/check-fragment.py` from the portfolio kit (refactored after Codacy flagged the first copies: bandit subprocess use, cyclomatic complexity). No change in behaviour. Tooling only; no crate code changes.
