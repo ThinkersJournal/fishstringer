@@ -126,10 +126,10 @@ fn peer_cluster_and_multicast_places_decline() {
 fn multi_device_and_cluster_launches_decline_and_one_device_does_not() {
     use unpopped::exec::LaunchShape;
     let mut l = LaunchShape::new([1, 1, 1], [1, 1, 1]);
-    let one = empty().with_launch(l.clone());
+    let one = empty().with_launch(l);
     assert!(!decline(&one).starts_with(GAP_PREFIX));
     l.devices = 2;
-    gap(&empty().with_launch(l.clone()), "multi-device");
+    gap(&empty().with_launch(l), "multi-device");
     l.devices = 1;
     l.cluster = Some([2, 1, 1]);
     gap(&empty().with_launch(l), "cluster launch");
