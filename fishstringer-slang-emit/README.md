@@ -35,3 +35,11 @@ Today every other kernel also declines, with the generic reason (row 17 adds the
 Also declined by name (patent risk, board 434 ruling C; `docs/PATENT_SWEEP.md`): `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective`, `CollectiveTuple`. Slang to SPIR-V is a non-NVIDIA target.
 
 Also declined as target gaps (needs `unpopped` 0.45): cluster-peer, peer-device and multicast places, `MulticastLoadReduce`, launches with `devices > 1` or cluster dimensions.
+
+## What `lower_kernel` lowers today
+
+A launched kernel with rank-1 (or rankless) `F32`/`I32`/`U32` buffer parameters, the statements `Let`, `Load`, `Assign`, `Store`,
+and the expressions `Local`, `Const` (f32 kernels), `ConstInt`, `Exec` (`ThreadIdx`, `BlockIdx`, `BlockDim`, `GridDim`), `Add`,
+`Sub`, `Mul`. A buffer is indexed by its one coordinate as a flat element index (no strided views, no scalar parameters yet: doc
+row E2), so the `KernelInterface` carries the entry symbol and one binding per buffer and **no parameter block**. Everything else
+declines with `UnsupportedKernel` ("... is not lowered yet"). Compiled by `slangc` in a test; not yet run on a device.

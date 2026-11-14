@@ -69,6 +69,7 @@
 //! IEEE bit patterns), and finite constants still go through `const_lit` unchanged.
 
 mod gaps;
+mod kernel_lower;
 pub use gaps::GAP_PREFIX;
 
 use unpopped::backend::{
@@ -296,13 +297,7 @@ impl Backend for Slang {
                 detail: format!("{}{gap} (kernel `{}`)", gaps::GAP_PREFIX, kernel.name),
             });
         }
-        Err(LowerError::UnsupportedKernel {
-            detail: format!(
-                "backend `{}` does not lower kernel-layer kernels (kernel `{}`)",
-                self.name(),
-                kernel.name
-            ),
-        })
+        kernel_lower::lower(kernel)
     }
     fn supports_dtype(&self, dtype: ElementKind, target: TargetId) -> DtypeSupport {
         dtype_ok(dtype, target)

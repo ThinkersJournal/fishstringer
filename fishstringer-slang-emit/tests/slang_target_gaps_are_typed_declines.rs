@@ -127,7 +127,14 @@ fn multi_device_and_cluster_launches_decline_and_one_device_does_not() {
     use unpopped::exec::LaunchShape;
     let mut l = LaunchShape::new([1, 1, 1], [1, 1, 1]);
     let one = empty().with_launch(l);
-    assert!(!decline(&one).starts_with(GAP_PREFIX));
+    // An empty launched kernel lowers now (E1); the control is only that it is not a gap decline.
+    match Slang.lower_kernel(&one) {
+        Ok(_) => {}
+        Err(LowerError::UnsupportedKernel { detail }) => {
+            assert!(!detail.starts_with(GAP_PREFIX), "{detail}")
+        }
+        Err(other) => panic!("{other:?}"),
+    }
     l.devices = 2;
     gap(&empty().with_launch(l), "multi-device");
     l.devices = 1;
