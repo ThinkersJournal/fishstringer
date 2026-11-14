@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.1.4 — Slang `lower_kernel` first slice (launched elementwise kernels)
+
+`Slang::lower_kernel` now lowers a launched kernel with rank-1 `F32`/`I32`/`U32` buffer parameters, `Let`/`Load`/`Assign`/`Store` and `Local`/`Const`/`ConstInt`/`Exec`/`Add`/`Sub`/`Mul`, and returns a `KernelInterface` (entry symbol, one binding per buffer in order, the `slangc` denorm arguments). No parameter block yet: strided views and scalar parameters are doc row E2, so the layout test against slangc reflection comes with it. Anything else is `UnsupportedKernel` ("not lowered yet"); the gap and patent declines run first. Verified: 3 new tests (lowers with its interface, `slangc` compiles the output to SPIR-V, what stays declined), workspace tests and clippy `-D warnings` pass. Not run on a device. ROADMAP row 17, doc row E1 in part.
+
 ## 0.1.3 — E3 re-scoped to harness 0.0.17; ROADMAP row 19 done, row 20 added
 
 Docs only. `docs/SLANG_EMISSION_COVERAGE.md` E3 now says what `unpopped-harness` 0.0.17 provides (exhaustive unary-f32 plan-path compare on Vulkan) and what it does not (launch kernels, views, launch shapes); the harness is to be used from a separate test crate, never as a dev-dependency of the emit crate. ROADMAP row 19 moves to Done; new row 20 records the request to the Unpopped lane.
