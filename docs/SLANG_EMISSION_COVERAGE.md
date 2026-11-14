@@ -33,6 +33,8 @@ the row's test is the proof, not this table.
 | E2 | **Buffer addressing.** `Place::Logical` means "through the view": emit shape/stride/base as a `cbuffer` (CpuC's `bI_shape/_stride/_base`), element index as `int64_t`. | fishstringer | M | emitted kernel on a strided 2-D view equals the oracle (`run_kernel`) on AMD+NVIDIA+Lavapipe |
 | E3 | **Differential harness.** Run every emitted kernel on the oracle (`run_launch`), CpuC and a Vulkan device; compare exactly for integers, within the band for floats. Reuse `unpopped-harness`. Without this no row below can close. | fishstringer + Unpopped (harness) | M | harness report per device, per construct |
 
+**E3 re-scoped 2026-11-14 (PM, after reading `unpopped-harness` 0.0.17):** the harness is Track 1 only: an exhaustive unary-f32 compare of a cpu-c reference against a candidate from the **plan** path (`generate`/`lower`) run on Vulkan through vulkane (`compare_unary_f32_vulkan`, with `slang_to_spirv`, `vulkan_devices`, `device_stamp`). E3 as first written (oracle `run_launch` / CpuC / device per construct, on `lower_kernel` kernels, with views and launch shapes) is **not provided**. What E3 is today: the 0.0.17 unary-f32 compare, run from a **separate test crate** (never a dev-dependency of the emit crate: it depends on published `fishstringer-slang-emit`, so that would put two emit copies in one build). The launch-kernel, buffer-view and launch-shape cases are a request to the Unpopped lane (ROADMAP row 20).
+
 ## 3. One row per construct family
 
 Sizes: S = under a day, M = a few days, L = a week or more. "Gap" = Slang cannot express it; the decline is the deliverable.
