@@ -19,6 +19,7 @@ this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-11 (m
 | 12 | `vulkane-slang-emit` and `-parse` 0.22.0 redirect crates published over `fishstringer-slang` 0.0.17 (tag v0.22.0; PM notice 2026-11-11; crates.io max_version 0.22.0 for both) | Vulkane, the PM |
 | 15 | Unpopped's three Slang sizing docs and the corpus harness moved here (`fishstringer-slang-parse/examples/slang_corpus_report.rs`); `regen_gate.py` (pins slangc, regenerates, compares) | #12, #13 |
 | 16 | NaN guards: `isnan` select in `unary*` (relu), `reduce*`, `reduce_last_dim*` (incl. the Wave path), because slangc 2026.8's `FMax`/`FMin` drop NaN (Fuel measured 72 of 72 cases on Vulkan) and Fuel pins NaN-propagating; regenerated at 2026.8, 12 kernels differ on purpose (0.0.17) | PR for 0.0.17 |
+| 19 | The recorded gaps of the Slang target, each a typed `UnsupportedKernel` decline: dynamic shared extent, device/cluster barriers, cluster fence/atomic, sparse/scaled `Mma`, peer/cluster/multicast places, multi-device and cluster launches; plus the four patent-flagged statements by name (board 434 C). Listed in the crate README. Doc row E18 | #21, #23, #24; `Mma` arms untested |
 
 ## Next
 
@@ -30,7 +31,7 @@ this repo's own queue. Scope and rules: `docs/CHARTER.md`. Updated 2026-11-11 (m
 | 14 | `dequant_q4_km`: Fuel's committed `.spv` is not what `slangc` 2026.8 makes from Fuel's own source (see `docs/KERNEL_RECONCILIATION.md`); Fuel's regeneration replaced it, nothing to do here unless a live test objects | Fuel's live test |
 | 17 | Slang `lower_kernel`: shape agreed with Unpopped (additive interface on `GeneratedKernel`), buffer addressing through views, differential harness (oracle / CpuC / device). Doc rows E1-E3 | Unpopped's answer on the interface (`docs/SLANG_EMISSION_COVERAGE.md` section 5) |
 | 18 | Slang emission of the kernel-layer constructs Slang can express, one row per family in `docs/SLANG_EMISSION_COVERAGE.md`: control flow (E4), `groupshared` static (E5) and dynamic (E6), barriers (E7), wave collectives (E8), block collectives (E9), atomics (E10), f16/bf16/packed (E11), multi-dim ids (E12), paged gather (E13), async copy as sync copy (E14), `Mma` (E15), calls/externs (E16), elementwise leftovers (E17) | row 17; E10/E11/E15 also capability data (E19) from Vulkane/KISS |
-| 19 | The recorded gaps of the Slang target, each a typed `UnsupportedKernel` decline with a test (cluster/peer places, device and cluster barriers, multi-device, run-time dynamic shared extent, sparse/scaled `Mma`); listed in the crate README. Doc row E18 | none; can land first |
+| 20 | Request on `unpopped-harness` (the Unpopped lane owns that repo): launch-kernel cases for `lower_kernel` output (oracle `run_launch` vs CpuC vs Vulkan device), strided buffer views (`Place::Logical`), launch shapes (block, grid, subgroup), exact for integers and a band for floats, as a test crate that does not depend on the emit crate's source. 0.0.17 gives only the unary-f32 plan-path compare. Doc row E3 | the Unpopped lane's answer; row 17 E1 (something to launch) |
 
 ## Open decision (PM)
 
