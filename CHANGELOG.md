@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.3.2 — `lower_kernel` lowers static shared and private allocations (row 17 E5)
+
+`Slang::lower_kernel` now lowers `Place::Alloc` on static allocations: a `Shared` one is a module-scope `groupshared T a<k>[N]` (an entry-local `groupshared` is not allowed in Slang), a `Private` one a function-local array. A `Constant` or `Global` allocation declines, because the IR gives a `Constant` allocation no initializer to emit; a launch-parameter extent stays the named target gap. Without the barriers of row E7 a shared array is only usable per thread, so the tile-transpose check waits for E7. Verified: a kernel using both spaces compiles to SPIR-V with `slangc`; both declines are tested; workspace tests and `clippy -D warnings` pass. Not run on a device.
+
 ## 0.3.1 — `lower_kernel` lowers control flow, masked access and comparisons (row 17 E4)
 
 `Slang::lower_kernel` now lowers `If`, `While`, `For`, `Break`, `Continue`, `Return`, `MaskedLoad` and `MaskedStore`, with `CmpEq/Ne/Lt/Le/Gt/Ge` as conditions and masks (a non-comparison is tested `!= 0`). A masked access sits inside the branch, so memory is untouched when the mask is false. A `For` lowers only with a nonzero constant step, because the oracle traps on a zero step and a GPU cannot; any other step declines `For: step not a nonzero constant`. Locals are hoisted to one declaration at the top of the entry. Verified: a kernel using every one of these statements compiles to SPIR-V with `slangc`, the step declines are tested, workspace tests and `clippy -D warnings` pass. Not run on a device, so the loop and branch semantics are not yet compared against the oracle.
