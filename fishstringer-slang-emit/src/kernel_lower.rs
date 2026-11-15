@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `Backend::lower_kernel` for Slang (ROADMAP row 17, doc rows E1, E2, E4, E5 and E7 in part).
+//! `Backend::lower_kernel` for Slang (ROADMAP row 17, doc rows E1, E2, E4, E5, E7 and E12 in part).
 //!
 //! **Covered:** a *launched* kernel whose parameters are buffers of `F32`/`I32`/`U32` (any known rank) and scalars of
 //! those types, with the statements `Let`, `Load`, `Assign`, `Store` and the expressions `Local`, `Const`, `ConstInt`,
@@ -29,6 +29,12 @@
 //! `AllMemoryBarrierWithWaveSync()`; a `Fence` is `GroupMemoryBarrier()` (block), `AllMemoryBarrier()` (subgroup) or
 //! `DeviceMemoryBarrier()` (device). Slang's barriers take no memory order, so every `MemoryOrder` maps to the same full
 //! barrier: stronger and so correct, the order distinction is lost. Device and cluster barriers are target gaps (`gaps.rs`).
+//!
+//! **Execution ids (E12).** `LaneId` is `WaveGetLaneIndex()`, `SubgroupSize` `WaveGetLaneCount()`, `SubgroupId` the derived
+//! `SV_GroupIndex / WaveGetLaneCount()`, `DeviceRank`/`DeviceCount` the constants `0`/`1` (a multi-device launch is a gap). The subgroup ids read the device's own subgroup size; the sizes the kernel is valid for are
+//! `LaunchShape::subgroup`, which the core-derived half of the interface already carries for the launcher to enforce.
+//! Vulkan's workgroup-size and dispatch limits are device properties this emitter does not see: a launch over them is
+//! the launcher's error until the capability vocabulary of row E19 gives the emitter the limits to decline on.
 //!
 //! **Everything else is refused** with `UnsupportedKernel` and a reason saying what is not lowered yet; nothing is
 //! approximated. The gap scan in `gaps.rs` runs first, so a construct outside the target gets its own reason.
@@ -93,6 +99,13 @@ fn spell(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
             .get(usize::from(*a))
             .map(|n| format!("{n}u"))
             .ok_or_else(|| no(kernel, "GridDim axis")),
+        // Subgroup ids are WaveGet* intrinsics; the subgroup id is derived (linear thread index / subgroup size). One device
+        // only: a multi-device launch is a target gap before this runs.
+        ScalarExpr::Exec(ExecId::LaneId) => Ok("WaveGetLaneIndex()".into()),
+        ScalarExpr::Exec(ExecId::SubgroupSize) => Ok("WaveGetLaneCount()".into()),
+        ScalarExpr::Exec(ExecId::SubgroupId) => Ok("(gi_ / WaveGetLaneCount())".into()),
+        ScalarExpr::Exec(ExecId::DeviceRank) => Ok("0u".into()),
+        ScalarExpr::Exec(ExecId::DeviceCount) => Ok("1u".into()),
         ScalarExpr::Add(a, b) => bin(a, "+", b),
         ScalarExpr::Sub(a, b) => bin(a, "-", b),
         ScalarExpr::Mul(a, b) => bin(a, "*", b),
@@ -405,7 +418,7 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
     }
     let [bx, by, bz] = launch.block;
     s.push_str(&format!(
-        "[shader(\"compute\")]\n[numthreads({bx}, {by}, {bz})]\nvoid {entry}(uint3 tid_ : SV_GroupThreadID, uint3 bid_ : SV_GroupID)\n{{\n"
+        "[shader(\"compute\")]\n[numthreads({bx}, {by}, {bz})]\nvoid {entry}(uint3 tid_ : SV_GroupThreadID, uint3 bid_ : SV_GroupID, uint gi_ : SV_GroupIndex)\n{{\n"
     ));
     s.push_str(&prologue);
     s.push_str(&private);
