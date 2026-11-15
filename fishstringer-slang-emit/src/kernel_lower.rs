@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `Backend::lower_kernel` for Slang (ROADMAP row 17, doc rows E1, E2 and E4 in part).
+//! `Backend::lower_kernel` for Slang (ROADMAP row 17, doc rows E1, E2, E4 and E5 in part).
 //!
 //! **Covered:** a *launched* kernel whose parameters are buffers of `F32`/`I32`/`U32` (any known rank) and scalars of
 //! those types, with the statements `Let`, `Load`, `Assign`, `Store` and the expressions `Local`, `Const`, `ConstInt`,
@@ -21,12 +21,16 @@
 //! so the device needs `shaderInt64` (the capability vocabulary for that is row E19; the interface carries it as a
 //! fidelity note until then).
 //!
+//! **Allocations (E5).** A static `Shared` allocation is a module-scope `groupshared T a<k>[N]`, a static `Private` one a
+//! function-local array; `Place::Alloc` indexes it by its flat element index. `Constant`/`Global` allocations and
+//! `Extent::Param` decline. Without barriers (E7) a shared array can only be used per-thread.
+//!
 //! **Everything else is refused** with `UnsupportedKernel` and a reason saying what is not lowered yet; nothing is
 //! approximated. The gap scan in `gaps.rs` runs first, so a construct outside the target gets its own reason.
 
 use std::collections::BTreeSet;
 use unpopped::backend::{GeneratedKernel, LowerError};
-use unpopped::exec::ExecId;
+use unpopped::exec::{ExecId, Extent, MemorySpace};
 
 use unpopped::ir::{BinaryOp, ScalarExpr};
 use unpopped::kernel::{Block, BufferRole, KernelFn, ParamKind, Place, Stmt, check_kernel};
@@ -239,6 +243,9 @@ fn stmts(
 }
 
 fn place(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
+    if let Place::Alloc { alloc, index } = p {
+        return Ok(format!("a{alloc}[{}]", spell(kernel, index)?));
+    }
     let Place::Logical { buffer, coords } = p else {
         return Err(no(kernel, "this place"));
     };
@@ -263,9 +270,6 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
     let Some(launch) = kernel.launch.as_ref() else {
         return Err(no(kernel, "a kernel with no launch"));
     };
-    if !kernel.allocs.is_empty() {
-        return Err(no(kernel, "an allocation (shared or private array)"));
-    }
     ctype(kernel, kernel.compute)?;
 
     let entry: String = kernel
@@ -337,11 +341,41 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
     } else {
         s.push_str(&decls);
     }
+    // Static allocations (E5). `Shared` is a module-scope `groupshared` (an entry-local one is not allowed), `Private` a
+    // function-local array. `Constant` has no initializer in the IR, so there is nothing to put in it: declined.
+    let mut private = String::new();
+    for (k, a) in kernel.allocs.iter().enumerate() {
+        let Extent::Static(n) = a.extent else {
+            return Err(no(
+                kernel,
+                "an allocation whose extent is a launch parameter",
+            ));
+        };
+        let ty = ctype(kernel, a.elem)?;
+        match a.space {
+            MemorySpace::Shared => {
+                s.push_str(&format!(
+                    "groupshared {ty} a{k}[{n}]; // {}
+",
+                    a.name
+                ));
+            }
+            MemorySpace::Private => {
+                private.push_str(&format!(
+                    "    {ty} a{k}[{n}]; // {}
+",
+                    a.name
+                ));
+            }
+            _ => return Err(no(kernel, "a Constant or Global allocation")),
+        }
+    }
     let [bx, by, bz] = launch.block;
     s.push_str(&format!(
         "[shader(\"compute\")]\n[numthreads({bx}, {by}, {bz})]\nvoid {entry}(uint3 tid_ : SV_GroupThreadID, uint3 bid_ : SV_GroupID)\n{{\n"
     ));
     s.push_str(&prologue);
+    s.push_str(&private);
     // Statements first (collecting every local they declare), then the declarations, hoisted to the top of the entry:
     // the IR scopes a local by its declaring statement, the source declares it once where every use can see it.
     let mut cx = Cx::default();

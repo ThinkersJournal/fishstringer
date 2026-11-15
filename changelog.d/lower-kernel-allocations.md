@@ -1,0 +1,3 @@
+kind: `lower_kernel` lowers static shared and private allocations (row 17 E5)
+---
+`Slang::lower_kernel` now lowers `Place::Alloc` on static allocations: a `Shared` one is a module-scope `groupshared T a<k>[N]` (an entry-local `groupshared` is not allowed in Slang), a `Private` one a function-local array. A `Constant` or `Global` allocation declines, because the IR gives a `Constant` allocation no initializer to emit; a launch-parameter extent stays the named target gap. Without the barriers of row E7 a shared array is only usable per thread, so the tile-transpose check waits for E7. Verified: a kernel using both spaces compiles to SPIR-V with `slangc`; both declines are tested; workspace tests and `clippy -D warnings` pass. Not run on a device.

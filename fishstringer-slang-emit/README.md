@@ -47,5 +47,6 @@ order); the `KernelInterface` carries the entry symbol, the bindings and a `Para
 (a GPU cannot trap where the oracle errors): the launcher passes views that keep every access in range. The block holds `int64_t`,
 so the device needs `shaderInt64` (capability vocabulary: doc row E19; the interface carries a fidelity note until then). Control flow
 (`If`, `While`, `For` with a nonzero constant step, `Break`, `Continue`, `Return`), `MaskedLoad`/`MaskedStore` and the six comparisons
-are lowered too (doc row E4; a `For` with any other step declines `For: step not a nonzero constant`). Everything
+are lowered too (doc row E4; a `For` with any other step declines `For: step not a nonzero constant`). Static `Shared` allocations (module-scope `groupshared`) and `Private` ones (a local array) lower too (doc row E5); `Constant`
+and `Global` allocations decline, and a launch-parameter extent is a target gap. Everything
 else declines with `UnsupportedKernel` ("... is not lowered yet"). Compiled by `slangc` in tests; not yet run on a device.
