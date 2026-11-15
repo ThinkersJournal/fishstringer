@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `Backend::lower_kernel` for Slang (ROADMAP row 17, doc rows E1, E2, E4 and E5 in part).
+//! `Backend::lower_kernel` for Slang (ROADMAP row 17, doc rows E1, E2, E4, E5 and E7 in part).
 //!
 //! **Covered:** a *launched* kernel whose parameters are buffers of `F32`/`I32`/`U32` (any known rank) and scalars of
 //! those types, with the statements `Let`, `Load`, `Assign`, `Store` and the expressions `Local`, `Const`, `ConstInt`,
@@ -25,12 +25,17 @@
 //! function-local array; `Place::Alloc` indexes it by its flat element index. `Constant`/`Global` allocations and
 //! `Extent::Param` decline. Without barriers (E7) a shared array can only be used per-thread.
 //!
+//! **Barriers and fences (E7).** `Barrier{Block}` is `GroupMemoryBarrierWithGroupSync()`, `Barrier{Subgroup}`
+//! `AllMemoryBarrierWithWaveSync()`; a `Fence` is `GroupMemoryBarrier()` (block), `AllMemoryBarrier()` (subgroup) or
+//! `DeviceMemoryBarrier()` (device). Slang's barriers take no memory order, so every `MemoryOrder` maps to the same full
+//! barrier: stronger and so correct, the order distinction is lost. Device and cluster barriers are target gaps (`gaps.rs`).
+//!
 //! **Everything else is refused** with `UnsupportedKernel` and a reason saying what is not lowered yet; nothing is
 //! approximated. The gap scan in `gaps.rs` runs first, so a construct outside the target gets its own reason.
 
 use std::collections::BTreeSet;
 use unpopped::backend::{GeneratedKernel, LowerError};
-use unpopped::exec::{ExecId, Extent, MemorySpace};
+use unpopped::exec::{ExecId, Extent, MemorySpace, Scope};
 
 use unpopped::ir::{BinaryOp, ScalarExpr};
 use unpopped::kernel::{Block, BufferRole, KernelFn, ParamKind, Place, Stmt, check_kernel};
@@ -233,6 +238,34 @@ fn stmts(
                 stmts(kernel, body, ind + 1, cx, out)?;
                 out.push_str(&format!("{p}}} }}\n"));
             }
+            // Slang's barriers take no memory order, so every `MemoryOrder` of a fence maps to the same full barrier of its
+            // scope: stronger, hence correct, and the order distinction is lost (recorded in the module docs).
+            Stmt::Barrier { scope, .. } => match scope {
+                Scope::Block => out.push_str(&format!(
+                    "{p}GroupMemoryBarrierWithGroupSync();
+"
+                )),
+                Scope::Subgroup => out.push_str(&format!(
+                    "{p}AllMemoryBarrierWithWaveSync();
+"
+                )),
+                _ => return Err(no(kernel, "a barrier of this scope")),
+            },
+            Stmt::Fence { scope, .. } => match scope {
+                Scope::Block => out.push_str(&format!(
+                    "{p}GroupMemoryBarrier();
+"
+                )),
+                Scope::Subgroup => out.push_str(&format!(
+                    "{p}AllMemoryBarrier();
+"
+                )),
+                Scope::Device => out.push_str(&format!(
+                    "{p}DeviceMemoryBarrier();
+"
+                )),
+                _ => return Err(no(kernel, "a fence of this scope")),
+            },
             Stmt::Break => out.push_str(&format!("{p}break;\n")),
             Stmt::Continue => out.push_str(&format!("{p}continue;\n")),
             Stmt::Return => out.push_str(&format!("{p}return;\n")),
