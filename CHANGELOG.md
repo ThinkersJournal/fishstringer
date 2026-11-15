@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.3.4 — `lower_kernel` lowers lane, subgroup and device ids (row 17 E12)
+
+`Slang::lower_kernel` now lowers the remaining execution ids: `LaneId` is `WaveGetLaneIndex()`, `SubgroupSize` is `WaveGetLaneCount()`, `SubgroupId` is derived as `SV_GroupIndex / WaveGetLaneCount()` (the entry point gains an `SV_GroupIndex` argument), and `DeviceRank`/`DeviceCount` are the constants 0 and 1 (a multi-device launch is already a named gap). The subgroup ids read the device's subgroup size, so the sizes a kernel is valid for stay `LaunchShape::subgroup`, which the core-derived half of the `KernelInterface` already carries. A 3-D copy over an odd grid (block 4x2x2, grid 3x5x7) and every id compile to SPIR-V with `slangc`. Vulkan workgroup-size and dispatch limits are not checked by the emitter (they are device properties; row E19). Verified: workspace tests and `clippy -D warnings` pass. Not run on a device.
+
 ## 0.3.3 — `lower_kernel` lowers barriers and fences (row 17 E7)
 
 `Slang::lower_kernel` now lowers `Barrier{Block}` to `GroupMemoryBarrierWithGroupSync()`, `Barrier{Subgroup}` to `AllMemoryBarrierWithWaveSync()`, and `Fence` at block, subgroup and device scope to `GroupMemoryBarrier()`, `AllMemoryBarrier()` and `DeviceMemoryBarrier()`. Slang's barriers take no memory order, so every `MemoryOrder` of a fence maps to the same full barrier: stronger, so correct, and the order distinction is lost (recorded in the module docs). Device and cluster barriers and cluster fences stay the named target gaps. With E5 this makes a cross-thread shared-memory kernel lowerable: a block reversal through a shared tile compiles to SPIR-V with `slangc` and its barrier sits between the write and the read (tested). Verified: workspace tests and `clippy -D warnings` pass. Not run on a device, so the reversal is not yet compared against the oracle.
