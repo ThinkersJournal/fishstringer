@@ -72,8 +72,8 @@ pub const SLANG: Frontend = Frontend::new(
 mod tests {
     use super::*;
     use unpopped::LiftError;
-    use unpopped_convert::{lift, lift_elementwise, lift_reduction, lift_scan};
     use unpopped::ir::{Access, ReduceOp, ScalarExpr};
+    use unpopped_convert::{lift, lift_elementwise, lift_reduction, lift_scan};
     use unpopped_vocab::ElementKind;
 
     const F32: &[ElementKind] = &[ElementKind::F32];

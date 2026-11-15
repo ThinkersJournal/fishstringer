@@ -1250,8 +1250,8 @@ mod tests {
     #[test]
     fn slang_emit_round_trips_through_the_lifter() {
         use fishstringer_slang_parse::SLANG;
-        use unpopped_convert::lift_elementwise;
         use unpopped::ir::ScalarExpr;
+        use unpopped_convert::lift_elementwise;
         let op = OpDef::elementwise("mul", 2, &[ElementKind::F32], input(0) * input(1));
         let k = generate(&op, &binary_scalar_key(ElementKind::F32, 4), &Slang);
         let lifted = lift_elementwise(&SLANG, &k.source, "mul", &[ElementKind::F32])
