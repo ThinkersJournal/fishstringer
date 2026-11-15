@@ -31,6 +31,7 @@ unpopped-cpu-c = "0.47.0"
 unpopped-convert = "0.47.0"
 # The slangc test writes its sources into a private, auto-removed directory.
 tempfile       = "3.27"
+serde_json     = "1"
 # The round-trip test lifts emitted Slang back to the IR with the Slang frontend (moved out of unpopped in 0.37.0).
 fishstringer-slang-parse = { path = "../fishstringer-slang-parse" }
 

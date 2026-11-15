@@ -38,8 +38,12 @@ Also declined as target gaps (needs `unpopped` 0.45): cluster-peer, peer-device 
 
 ## What `lower_kernel` lowers today
 
-A launched kernel with rank-1 (or rankless) `F32`/`I32`/`U32` buffer parameters, the statements `Let`, `Load`, `Assign`, `Store`,
-and the expressions `Local`, `Const` (f32 kernels), `ConstInt`, `Exec` (`ThreadIdx`, `BlockIdx`, `BlockDim`, `GridDim`), `Add`,
-`Sub`, `Mul`. A buffer is indexed by its one coordinate as a flat element index (no strided views, no scalar parameters yet: doc
-row E2), so the `KernelInterface` carries the entry symbol and one binding per buffer and **no parameter block**. Everything else
-declines with `UnsupportedKernel` ("... is not lowered yet"). Compiled by `slangc` in a test; not yet run on a device.
+A launched kernel with `F32`/`I32`/`U32` buffer parameters of known rank and `F32`/`I32`/`U32` scalar parameters, the statements
+`Let`, `Load`, `Assign`, `Store`, and the expressions `Local`, `Const` (f32 kernels), `ConstInt`, `Exec` (`ThreadIdx`, `BlockIdx`,
+`BlockDim`, `GridDim`), `Add`, `Sub`, `Mul`. `Place::Logical` goes through the view: offset = `base + sum(coord_d * stride_d)` in
+`int64_t`. Strides, bases and scalars are one `ConstantBuffer` bound after the buffers (buffers take dense slots in parameter
+order); the `KernelInterface` carries the entry symbol, the bindings and a `ParamsBlock` whose offsets a test checks against what
+`slangc` reflects. Field names: scalar `p<i>`; buffer `b<i>_stride<d>` then `b<i>_base`. **No shape field and no bounds check**
+(a GPU cannot trap where the oracle errors): the launcher passes views that keep every access in range. The block holds `int64_t`,
+so the device needs `shaderInt64` (capability vocabulary: doc row E19; the interface carries a fidelity note until then). Everything
+else declines with `UnsupportedKernel` ("... is not lowered yet"). Compiled by `slangc` in tests; not yet run on a device.

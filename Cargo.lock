@@ -80,6 +80,7 @@ name = "fishstringer-slang-emit"
 version = "0.2.0"
 dependencies = [
  "fishstringer-slang-parse",
+ "serde_json",
  "tempfile",
  "unpopped",
  "unpopped-convert",
