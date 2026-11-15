@@ -1,9 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `Backend::lower_kernel` for Slang, first slice (ROADMAP row 17, doc rows E1/E2 in part).
+//! `Backend::lower_kernel` for Slang (ROADMAP row 17, doc rows E1, E2 and E4 in part).
 //!
 //! **Covered:** a *launched* kernel whose parameters are buffers of `F32`/`I32`/`U32` (any known rank) and scalars of
 //! those types, with the statements `Let`, `Load`, `Assign`, `Store` and the expressions `Local`, `Const`, `ConstInt`,
 //! `Exec` (`ThreadIdx`, `BlockIdx`, `BlockDim`, `GridDim`), `Add`, `Sub`, `Mul`.
+//!
+//! **Control flow and masks (E4).** `If`, `While`, `For`, `Break`, `Continue`, `Return`, `MaskedLoad`, `MaskedStore`, with
+//! the comparisons `CmpEq/Ne/Lt/Le/Gt/Ge` as conditions. A condition or mask that is not a comparison is tested `!= 0`. A
+//! masked access sits inside the branch, so memory is untouched when the mask is false. A `For` is emitted only when its
+//! step is a nonzero constant (the oracle traps on a zero step and a GPU cannot): otherwise it declines
+//! `For: step not a nonzero constant`. Its bounds are evaluated once. No loop hint is emitted (the IR has none). Locals are
+//! declared once at the top of the entry, because the IR scopes a local by its declaring statement.
 //!
 //! **Views (E2).** `Place::Logical` means "through the view": the element offset is
 //! `base + sum(coord_d * stride_d)`, computed in `int64_t`. Each buffer's strides and base, and every scalar parameter,
@@ -17,10 +24,12 @@
 //! **Everything else is refused** with `UnsupportedKernel` and a reason saying what is not lowered yet; nothing is
 //! approximated. The gap scan in `gaps.rs` runs first, so a construct outside the target gets its own reason.
 
+use std::collections::BTreeSet;
 use unpopped::backend::{GeneratedKernel, LowerError};
 use unpopped::exec::ExecId;
-use unpopped::ir::ScalarExpr;
-use unpopped::kernel::{BufferRole, KernelFn, ParamKind, Place, Stmt, check_kernel};
+
+use unpopped::ir::{BinaryOp, ScalarExpr};
+use unpopped::kernel::{Block, BufferRole, KernelFn, ParamKind, Place, Stmt, check_kernel};
 use unpopped::kernel_interface::{Binding, KernelInterface, ParamsBlock, ParamsBlockField};
 use unpopped_vocab::ElementKind;
 
@@ -78,8 +87,155 @@ fn spell(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
         ScalarExpr::Add(a, b) => bin(a, "+", b),
         ScalarExpr::Sub(a, b) => bin(a, "-", b),
         ScalarExpr::Mul(a, b) => bin(a, "*", b),
+        ScalarExpr::Binary(op, a, b) => match cmp_op(*op) {
+            Some(c) => bin(a, c, b),
+            None => Err(no(kernel, "this expression")),
+        },
         _ => Err(no(kernel, "this expression")),
     }
+}
+
+fn cmp_op(op: BinaryOp) -> Option<&'static str> {
+    Some(match op {
+        BinaryOp::CmpEq => "==",
+        BinaryOp::CmpNe => "!=",
+        BinaryOp::CmpLt => "<",
+        BinaryOp::CmpLe => "<=",
+        BinaryOp::CmpGt => ">",
+        BinaryOp::CmpGe => ">=",
+        _ => return None,
+    })
+}
+
+/// What an expression is, as far as the conditions need to know: a comparison is a `bool`, everything else a number.
+fn is_bool(e: &ScalarExpr) -> bool {
+    matches!(e, ScalarExpr::Binary(op, ..) if cmp_op(*op).is_some())
+}
+
+/// `e != 0` spelled so that a comparison (already a `bool`) is not compared again.
+fn truth(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
+    let s = spell(kernel, e)?;
+    Ok(if is_bool(e) { s } else { format!("({s} != 0)") })
+}
+
+#[derive(Default)]
+struct Cx {
+    /// Locals a `Let`, `Load`, `MaskedLoad` or `For` declares, in first-seen order.
+    declared: BTreeSet<u32>,
+    /// Counter for the temporaries a loop's bound needs.
+    tmp: u32,
+}
+
+fn pad(ind: usize) -> String {
+    "    ".repeat(ind)
+}
+
+fn stmts(
+    kernel: &KernelFn,
+    b: &Block,
+    ind: usize,
+    cx: &mut Cx,
+    out: &mut String,
+) -> Result<(), LowerError> {
+    let p = pad(ind);
+    for st in &b.0 {
+        match st {
+            Stmt::Let { local, init } => {
+                cx.declared.insert(*local);
+                out.push_str(&format!("{p}l{local} = {};\n", spell(kernel, init)?));
+            }
+            Stmt::Load { local, place: pl } => {
+                cx.declared.insert(*local);
+                out.push_str(&format!("{p}l{local} = {};\n", place(kernel, pl)?));
+            }
+            Stmt::Assign { local, value } => {
+                out.push_str(&format!("{p}l{local} = {};\n", spell(kernel, value)?));
+            }
+            Stmt::Store { place: pl, value } => {
+                out.push_str(&format!(
+                    "{p}{} = {};\n",
+                    place(kernel, pl)?,
+                    spell(kernel, value)?
+                ));
+            }
+            // Memory is untouched when the mask is false, so the access sits inside the branch.
+            Stmt::MaskedLoad {
+                local,
+                place: pl,
+                mask,
+                fill,
+            } => {
+                cx.declared.insert(*local);
+                out.push_str(&format!(
+                    "{p}if ({}) {{ l{local} = {}; }} else {{ l{local} = {}; }}\n",
+                    truth(kernel, mask)?,
+                    place(kernel, pl)?,
+                    spell(kernel, fill)?
+                ));
+            }
+            Stmt::MaskedStore {
+                place: pl,
+                value,
+                mask,
+            } => {
+                out.push_str(&format!(
+                    "{p}if ({}) {{ {} = {}; }}\n",
+                    truth(kernel, mask)?,
+                    place(kernel, pl)?,
+                    spell(kernel, value)?
+                ));
+            }
+            Stmt::If { cond, then, els } => {
+                out.push_str(&format!("{p}if ({}) {{\n", truth(kernel, cond)?));
+                stmts(kernel, then, ind + 1, cx, out)?;
+                if els.0.is_empty() {
+                    out.push_str(&format!("{p}}}\n"));
+                } else {
+                    out.push_str(&format!("{p}}} else {{\n"));
+                    stmts(kernel, els, ind + 1, cx, out)?;
+                    out.push_str(&format!("{p}}}\n"));
+                }
+            }
+            Stmt::While { cond, body } => {
+                out.push_str(&format!("{p}while ({}) {{\n", truth(kernel, cond)?));
+                stmts(kernel, body, ind + 1, cx, out)?;
+                out.push_str(&format!("{p}}}\n"));
+            }
+            Stmt::For {
+                local,
+                start,
+                end,
+                step,
+                body,
+            } => {
+                // The oracle traps on a zero step and a GPU cannot, so only a constant, nonzero step is emitted.
+                let ScalarExpr::ConstInt(k, _) = step else {
+                    return Err(no(kernel, "For: step not a nonzero constant"));
+                };
+                if *k == 0 {
+                    return Err(no(kernel, "For: step not a nonzero constant"));
+                }
+                let ty = local_ty(kernel, *local)?;
+                cx.declared.insert(*local);
+                let t = cx.tmp;
+                cx.tmp += 1;
+                let cmp = if *k > 0 { "<" } else { ">" };
+                // The bounds are evaluated once, before the first pass.
+                out.push_str(&format!(
+                    "{p}{{ {ty} e{t}_ = {}; for (l{local} = {}; l{local} {cmp} e{t}_; l{local} += (({ty}){k})) {{\n",
+                    spell(kernel, end)?,
+                    spell(kernel, start)?
+                ));
+                stmts(kernel, body, ind + 1, cx, out)?;
+                out.push_str(&format!("{p}}} }}\n"));
+            }
+            Stmt::Break => out.push_str(&format!("{p}break;\n")),
+            Stmt::Continue => out.push_str(&format!("{p}continue;\n")),
+            Stmt::Return => out.push_str(&format!("{p}return;\n")),
+            _ => return Err(no(kernel, "this statement")),
+        }
+    }
+    Ok(())
 }
 
 fn place(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
@@ -186,29 +342,16 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
         "[shader(\"compute\")]\n[numthreads({bx}, {by}, {bz})]\nvoid {entry}(uint3 tid_ : SV_GroupThreadID, uint3 bid_ : SV_GroupID)\n{{\n"
     ));
     s.push_str(&prologue);
-    for st in &kernel.body.0 {
-        match st {
-            Stmt::Let { local, init } => {
-                let ty = local_ty(kernel, *local)?;
-                s.push_str(&format!("    {ty} l{local} = {};\n", spell(kernel, init)?));
-            }
-            Stmt::Load { local, place: p } => {
-                let ty = local_ty(kernel, *local)?;
-                s.push_str(&format!("    {ty} l{local} = {};\n", place(kernel, p)?));
-            }
-            Stmt::Assign { local, value } => {
-                s.push_str(&format!("    l{local} = {};\n", spell(kernel, value)?));
-            }
-            Stmt::Store { place: p, value } => {
-                s.push_str(&format!(
-                    "    {} = {};\n",
-                    place(kernel, p)?,
-                    spell(kernel, value)?
-                ));
-            }
-            _ => return Err(no(kernel, "this statement")),
-        }
+    // Statements first (collecting every local they declare), then the declarations, hoisted to the top of the entry:
+    // the IR scopes a local by its declaring statement, the source declares it once where every use can see it.
+    let mut cx = Cx::default();
+    let mut body = String::new();
+    stmts(kernel, &kernel.body, 1, &mut cx, &mut body)?;
+    for l in &cx.declared {
+        let ty = local_ty(kernel, *l)?;
+        s.push_str(&format!("    {ty} l{l} = ({ty})0;\n"));
     }
+    s.push_str(&body);
     s.push_str("}\n");
     for a in crate::required_slangc_args(kernel.compute) {
         iface = iface.with_compiler_arg(*a);
