@@ -1,3 +1,0 @@
-kind: **BREAKING**: repin to unpopped 0.47.0 (sk8); `unpopped-convert` is its own crate
----
-`fishstringer-slang-emit` and `fishstringer-slang-parse` now pin `unpopped`, `unpopped-vocab` and `unpopped-cpu-c` at 0.47.0 (structure_key sk8). The Unpopped `convert` feature became the crate `unpopped-convert`: the parse crate depends on it directly and imports `unpopped_convert::`; the emit crate's `convert` feature is now a marker feature that gates the round-trip unit test, with `unpopped-convert` as a dev-dependency. Verified: workspace build, `clippy -D warnings` and all workspace tests pass with `--all-features`; the structure-keyed conformance cells passed unchanged.

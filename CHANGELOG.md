@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.2.0 — **BREAKING**: repin to unpopped 0.47.0 (sk8); `unpopped-convert` is its own crate
+
+`fishstringer-slang-emit` and `fishstringer-slang-parse` now pin `unpopped`, `unpopped-vocab` and `unpopped-cpu-c` at 0.47.0 (structure_key sk8). The Unpopped `convert` feature became the crate `unpopped-convert`: the parse crate depends on it directly and imports `unpopped_convert::`; the emit crate's `convert` feature is now a marker feature that gates the round-trip unit test, with `unpopped-convert` as a dev-dependency. Verified: workspace build, `clippy -D warnings` and all workspace tests pass with `--all-features`; the structure-keyed conformance cells passed unchanged.
+
 ## 0.1.4 — Slang `lower_kernel` first slice (launched elementwise kernels)
 
 `Slang::lower_kernel` now lowers a launched kernel with rank-1 `F32`/`I32`/`U32` buffer parameters, `Let`/`Load`/`Assign`/`Store` and `Local`/`Const`/`ConstInt`/`Exec`/`Add`/`Sub`/`Mul`, and returns a `KernelInterface` (entry symbol, one binding per buffer in order, the `slangc` denorm arguments). No parameter block yet: strided views and scalar parameters are doc row E2, so the layout test against slangc reflection comes with it. Anything else is `UnsupportedKernel` ("not lowered yet"); the gap and patent declines run first. Verified: 3 new tests (lowers with its interface, `slangc` compiles the output to SPIR-V, what stays declined), workspace tests and clippy `-D warnings` pass. Not run on a device. ROADMAP row 17, doc row E1 in part.
