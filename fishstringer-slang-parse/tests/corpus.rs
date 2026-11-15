@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 use fishstringer_slang_parse::SLANG;
 use unpopped::LiftError;
-use unpopped::convert::{lift_elementwise, lift_reduction, lift_scan};
+use unpopped_convert::{lift_elementwise, lift_reduction, lift_scan};
 use unpopped_vocab::ElementKind;
 
 const F32: &[ElementKind] = &[ElementKind::F32];

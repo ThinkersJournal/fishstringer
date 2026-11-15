@@ -13,7 +13,7 @@ those of the sources being moved, not yet of this repo.
 |---|---|---|---|---|
 | `fishstringer-kernels-source` | 0.0.0 (claimed) | Slang kernels, `compile.sh`, hoist/no-contraction scripts | `fuel-kernels-source` (+ Vulkane's copy), #2 and #7 | nothing: no dependencies, no Rust code |
 | `fishstringer-slang-parse` | 0.0.0 (claimed) | tree-sitter-slang front end: `SLANG` `Frontend`, residue list | `vulkane-slang-parse` | `unpopped` `0.43` with `convert`, `tree-sitter` `0.27`, `tree-sitter-slang` `0.3`; dev: `unpopped-vocab` |
-| `fishstringer-slang-emit` | 0.0.0 (claimed) | IR to Slang text | `vulkane-slang-emit` | `unpopped`, `unpopped-vocab`; feature `convert` = `unpopped/convert`; dev: `unpopped-cpu-c`, `tempfile`, `fishstringer-slang-parse` |
+| `fishstringer-slang-emit` | 0.0.0 (claimed) | IR to Slang text | `vulkane-slang-emit` | `unpopped`, `unpopped-vocab`; feature `convert` = `unpopped-convert`; dev: `unpopped-cpu-c`, `tempfile`, `fishstringer-slang-parse` |
 | `fishstringer`, `fishstringer-sys` | 0.0.0 (claimed) | reserved | this repo's stub | stay reserved, `publish = false` until they have an API |
 
 Unpopped crates were all 0.43.2 on crates.io on 2026-11-07 (`unpopped`, `unpopped-vocab`, `unpopped-cpu-c`), so the
