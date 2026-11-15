@@ -72,10 +72,23 @@ fn a_launched_elementwise_kernel_lowers_with_its_interface() {
         .map(|b| (b.param, b.space, b.slot))
         .collect();
     assert_eq!(slots, vec![(0, 0, 0), (1, 0, 1)]);
-    assert!(
-        i.params_block.is_none(),
-        "no views or scalars yet, so no parameter block"
+    // Every buffer is a view: stride per axis and a base, as int64_t, in one block bound after the buffers.
+    let pb = i.params_block.as_ref().expect("views need a block");
+    let f: Vec<(&str, u32)> = pb
+        .fields
+        .iter()
+        .map(|f| (f.name.as_str(), f.offset))
+        .collect();
+    assert_eq!(
+        f,
+        vec![
+            ("b0_stride0", 0),
+            ("b0_base", 8),
+            ("b1_stride0", 16),
+            ("b1_base", 24)
+        ]
     );
+    assert_eq!((pb.size, pb.align, pb.by_address), (32, 8, false));
 }
 
 #[test]
