@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Sizing harness for the Slang parser-split job (PM task, 2026-09-25; moved here from Unpopped
 //! `crates/unpopped/examples/` at 5c12a76, rewritten to use `fishstringer_slang_parse::SLANG`):
-//! runs this crate's [`SLANG`] [`Frontend`](unpopped::convert::Frontend) over every source file in a
+//! runs this crate's [`SLANG`] [`Frontend`](unpopped_convert::Frontend) over every source file in a
 //! directory and reports accepted-vs-refused, bucketed by [`LiftError`]
 //! variant — NOT `convert::lift`'s combined result, because `lift` chains
 //! `elementwise.or_else(reduction).or_else(scan)` and returns only the LAST
@@ -22,7 +22,7 @@ use std::path::PathBuf;
 
 use fishstringer_slang_parse::SLANG;
 use unpopped::LiftError;
-use unpopped::convert::{lift_elementwise, lift_reduction, lift_scan};
+use unpopped_convert::{lift_elementwise, lift_reduction, lift_scan};
 use unpopped_vocab::ElementKind;
 
 const F32: &[ElementKind] = &[ElementKind::F32];

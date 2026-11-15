@@ -12,7 +12,7 @@
 //!   The buffer names are not a style choice: `out` and `in` are HLSL keywords.
 //!
 //! ```
-//! use unpopped::convert::lift_elementwise;
+//! use unpopped_convert::lift_elementwise;
 //! use unpopped_vocab::ElementKind;
 //! use fishstringer_slang_parse::SLANG;
 //!
@@ -29,7 +29,7 @@
 //! `THIRD-PARTY-NOTICES.md`.
 
 use tree_sitter::{Parser, Tree};
-use unpopped::convert::Frontend;
+use unpopped_convert::Frontend;
 
 /// Parse Slang source into a tree-sitter CST.
 ///
@@ -72,7 +72,7 @@ pub const SLANG: Frontend = Frontend::new(
 mod tests {
     use super::*;
     use unpopped::LiftError;
-    use unpopped::convert::{lift, lift_elementwise, lift_reduction, lift_scan};
+    use unpopped_convert::{lift, lift_elementwise, lift_reduction, lift_scan};
     use unpopped::ir::{Access, ReduceOp, ScalarExpr};
     use unpopped_vocab::ElementKind;
 

@@ -19,15 +19,16 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 # compile C via the `cc` crate; the emit-only default build stays lean.
 # NOTE: this feature needs rustc 1.90 (`tree-sitter-language` 0.1.9 declares it); the crate's
 # `rust-version` of 1.85 holds for the default, emit-only build.
-convert = ["unpopped/convert"]
+convert = []
 
 [dependencies]
-unpopped       = "0.45.12"
-unpopped-vocab = "0.45.12"
+unpopped       = "0.47.0"
+unpopped-vocab = "0.47.0"
 
 [dev-dependencies]
 # The conformance cells (tests/) compare against the C reference emitter.
-unpopped-cpu-c = "0.45.12"
+unpopped-cpu-c = "0.47.0"
+unpopped-convert = "0.47.0"
 # The slangc test writes its sources into a private, auto-removed directory.
 tempfile       = "3.27"
 # The round-trip test lifts emitted Slang back to the IR with the Slang frontend (moved out of unpopped in 0.37.0).
