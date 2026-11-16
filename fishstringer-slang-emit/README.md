@@ -28,13 +28,11 @@ its git history is preserved. It moved to FishStringer, which owns Slang, on 202
 - run-time dynamic shared extent (`Extent::Param`)
 - device-scope barrier (grid sync) and cluster-scope barrier, fence or atomic
 - sparse (2:4) and block-scaled `Mma` atoms
+- cluster-peer, peer-device and multicast places, `MulticastLoadReduce`, launches with `devices > 1` or cluster dimensions
 
-(Peer/cluster places and multi-device launches are covered below.)
-Today every other kernel also declines, with the generic reason (row 17 adds the lowering).
+Each has its own test in `tests/slang_target_gaps_are_typed_declines.rs`. A kernel outside the list that `lower_kernel` does not lower yet declines with the generic "... is not lowered yet" reason instead, so the prefix tells "outside the target" from "not taught yet".
 
 Also declined by name (patent risk, board 434 ruling C; `docs/PATENT_SWEEP.md`): `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective`, `CollectiveTuple`. Slang to SPIR-V is a non-NVIDIA target.
-
-Also declined as target gaps (needs `unpopped` 0.45): cluster-peer, peer-device and multicast places, `MulticastLoadReduce`, launches with `devices > 1` or cluster dimensions.
 
 ## What `lower_kernel` lowers today
 
