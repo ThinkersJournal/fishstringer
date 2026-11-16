@@ -66,6 +66,19 @@ fn stmt_gap(s: &Stmt) -> Option<String> {
         Stmt::CopyAsync { .. } | Stmt::AsyncCommit | Stmt::AsyncWait { .. } => Some(
             "async copy statement (CopyAsync/AsyncCommit/AsyncWait): declined by name, patent risk, see docs/PATENT_SWEEP.md".into(),
         ),
+        // Board 434 C extended (CireSnave 2026-11-16): NVIDIA US11803380B2 (mbarrier) and US12204897B2 / US12710961B2
+        // (a wait on a count of pending matrix-multiply operations). Possible exposure: never lowered to a hardware
+        // operation on this non-NVIDIA target. See docs/PATENT_SWEEP.md.
+        Stmt::MbarInit { .. }
+        | Stmt::MbarArrive { .. }
+        | Stmt::MbarCompleteTx { .. }
+        | Stmt::MbarWait { .. }
+        | Stmt::CopyBulk { .. } => Some(
+            "mbarrier statement (MbarInit/MbarArrive/MbarCompleteTx/MbarWait/CopyBulk): declined by name, possible exposure, board 434 C extended, see docs/PATENT_SWEEP.md".into(),
+        ),
+        Stmt::WgmmaWait { .. } | Stmt::Tcgen05Commit { .. } => Some(
+            "pending-matrix-multiply wait (WgmmaWait/Tcgen05Commit): declined by name, possible exposure, board 434 C extended, see docs/PATENT_SWEEP.md".into(),
+        ),
         Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => Some(
             "collective statement (Reduce/Scan/Shuffle/Vote/Broadcast, tuple forms): declined by name, patent risk, see docs/PATENT_SWEEP.md".into(),
         ),

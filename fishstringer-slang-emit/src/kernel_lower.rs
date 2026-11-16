@@ -370,6 +370,7 @@ fn stmts(
                 end,
                 step,
                 body,
+                ..
             } => {
                 // The oracle traps on a zero step and a GPU cannot, so only a constant, nonzero step is emitted.
                 let ScalarExpr::ConstInt(k, _) = step else {
