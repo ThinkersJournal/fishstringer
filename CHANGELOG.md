@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.3.9 — CI moves the CodeRipper portfolio workflow to the 0.47.5 pin
+
+The `portfolio` job now calls the shared workflow at `c72a6e03479d914de8ea8a73609ba73e93a0de92` (installs CodeRipper 0.47.5). This repo has no `.coderipper.toml` and no `--skip-rule` or `check <rule>` use, so the rule-id migration tool had nothing to rewrite (`migrate-rule-ids.py --dry-run` exits 2: no `.coderipper.toml`; a search of tracked files for the 14 old names finds none). CI configuration only; no code or version change.
+
 ## 0.3.8 — every recorded Slang target gap has its own decline test; the README lists the whole boundary (row 17 E18)
 
 Added the decline tests the gap list was missing: cluster-scope fence and atomic, `CopyAsync` into a cluster-peer place, `MulticastLoadReduce`, and the sparse (2:4) and block-scaled `Mma` atom arms (built from real `MmaAtom`s, with a dense atom as the control that is not a gap). Each asserts the `slang target gap: ` prefix and the construct named. The crate README now lists the full boundary in one place (dynamic shared extent, device and cluster barriers/fences/atomics, sparse and scaled `Mma`, peer/cluster/multicast places, multi-device and cluster launches) and drops the stale "needs unpopped 0.45" line. Tests and docs only; no behaviour change.
