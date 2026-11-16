@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.3.10 — `lower_kernel` declines a dense `Mma` by name (row 17 E15 route b)
+
+A dense `Mma` atom now declines with `slang: Mma: no cooperative-matrix shape for this atom `<name>` (kernel `<k>`)` instead of the generic "this statement is not lowered yet". It is not a target gap (no `slang target gap: ` prefix): mapping an atom to a `CoopMat` shape is route (a) of the coverage doc and needs the device's shape list (row E19) and a device measurement. Sparse and block-scaled atoms stay target gaps. Tested with a real `nvidia_m16n8k16_f16_f32` atom that passes `check_kernel`, with the control that the reason carries no gap prefix. Declines only; no kernel that lowered before changes.
+
 ## 0.3.9 — CI moves the CodeRipper portfolio workflow to the 0.47.5 pin
 
 The `portfolio` job now calls the shared workflow at `c72a6e03479d914de8ea8a73609ba73e93a0de92` (installs CodeRipper 0.47.5). This repo has no `.coderipper.toml` and no `--skip-rule` or `check <rule>` use, so the rule-id migration tool had nothing to rewrite (`migrate-rule-ids.py --dry-run` exits 2: no `.coderipper.toml`; a search of tracked files for the 14 old names finds none). CI configuration only; no code or version change.
