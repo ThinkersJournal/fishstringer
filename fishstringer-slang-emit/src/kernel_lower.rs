@@ -48,6 +48,10 @@
 //! storage (a fidelity note until row E19). 16-bit scalar parameters, packed locals and fp8 decline. Not yet compared
 //! against the oracle exhaustively: that needs a device.
 //!
+//! **Paged gather (E13).** `I64` is `int64_t` (needs `shaderInt64`) and `Cast` lowers for int to int (`Wrap`) and to
+//! `F32`/`F16` (`NearestEven`, `Wrap`); float to int, other modes and `Bf16` decline. A buffer index is 32-bit in Slang, so
+//! a cache past 2^32 elements is the launcher's to keep out. Integer `Div`/`Rem` are not in the IR: loop over pages.
+//!
 //! **Everything else is refused** with `UnsupportedKernel` and a reason saying what is not lowered yet; nothing is
 //! approximated. The gap scan in `gaps.rs` runs first, so a construct outside the target gets its own reason.
 
@@ -55,7 +59,7 @@ use std::collections::BTreeSet;
 use unpopped::backend::{GeneratedKernel, LowerError};
 use unpopped::exec::{ExecId, Extent, MemorySpace, Scope};
 
-use unpopped::ir::{BinaryOp, ScalarExpr};
+use unpopped::ir::{BinaryOp, RoundMode, Saturation, ScalarExpr};
 use unpopped::kernel::{
     AtomicOp, Block, BufferRole, KernelFn, ParamKind, Place, Stmt, check_kernel,
 };
@@ -80,6 +84,8 @@ fn ctype(kernel: &KernelFn, dt: ElementKind) -> Result<&'static str, LowerError>
         ElementKind::Bf16 => Ok("float"),
         ElementKind::I32 => Ok("int"),
         ElementKind::U32 => Ok("uint"),
+        // 64-bit indices and offsets (E13); needs shaderInt64, as the params block already does.
+        ElementKind::I64 => Ok("int64_t"),
         _ => Err(no(kernel, &format!("element type {dt:?}"))),
     }
 }
@@ -108,6 +114,27 @@ fn place_elem(kernel: &KernelFn, p: &Place) -> Option<ElementKind> {
 /// A `Bf16` buffer element (not an allocation: those hold the compute `float` directly) needs a conversion on every access.
 fn is_bf16_buffer(kernel: &KernelFn, p: &Place) -> bool {
     matches!(p, Place::Logical { .. }) && place_elem(kernel, p) == Some(ElementKind::Bf16)
+}
+
+/// The element type of an expression, where the lowering needs it (a `Cast` is checked against its source).
+fn expr_ty(kernel: &KernelFn, e: &ScalarExpr) -> Option<ElementKind> {
+    match e {
+        ScalarExpr::Local(i) => kernel.locals.get(*i as usize).map(|d| d.elem),
+        ScalarExpr::Const(_) => Some(kernel.compute),
+        ScalarExpr::ConstInt(_, ek) => Some(*ek),
+        ScalarExpr::Exec(_) => Some(ElementKind::U32),
+        ScalarExpr::Cast(_, spec) => Some(spec.to),
+        ScalarExpr::Add(a, _) | ScalarExpr::Sub(a, _) | ScalarExpr::Mul(a, _) => expr_ty(kernel, a),
+        _ => None,
+    }
+}
+
+fn is_int_ty(t: ElementKind) -> bool {
+    matches!(t, ElementKind::I32 | ElementKind::U32 | ElementKind::I64)
+}
+
+fn is_float_ty(t: ElementKind) -> bool {
+    matches!(t, ElementKind::F32 | ElementKind::F16)
 }
 
 /// Whether an expression is a `Bf16` value (so an arithmetic result must be rounded back to bf16).
@@ -201,6 +228,24 @@ fn spell(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
         ScalarExpr::Exec(ExecId::SubgroupId) => Ok("(gi_ / WaveGetLaneCount())".into()),
         ScalarExpr::Exec(ExecId::DeviceRank) => Ok("0u".into()),
         ScalarExpr::Exec(ExecId::DeviceCount) => Ok("1u".into()),
+        // Conversions the C cast does exactly: integer to integer (wrapping) and integer or float to a float
+        // (round to nearest even). Float to integer, other rounding or saturation, and `Bf16` decline.
+        ScalarExpr::Cast(x, spec) => {
+            let to = spec.to;
+            let from = expr_ty(kernel, x).ok_or_else(|| no(kernel, "a Cast of this operand"))?;
+            let ok = (is_int_ty(from) && is_int_ty(to) && spec.sat == Saturation::Wrap)
+                || ((is_int_ty(from) || is_float_ty(from))
+                    && is_float_ty(to)
+                    && spec.round == RoundMode::NearestEven
+                    && spec.sat == Saturation::Wrap);
+            if !ok {
+                return Err(no(
+                    kernel,
+                    "this Cast (only int-to-int Wrap and to-float NearestEven lower)",
+                ));
+            }
+            Ok(format!("(({})({}))", ctype(kernel, to)?, spell(kernel, x)?))
+        }
         ScalarExpr::Add(a, b) => arith(a, "+", b),
         ScalarExpr::Sub(a, b) => arith(a, "-", b),
         ScalarExpr::Mul(a, b) => arith(a, "*", b),
