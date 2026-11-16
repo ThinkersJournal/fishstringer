@@ -245,3 +245,43 @@ fn sparse_and_block_scaled_mma_atoms_decline_and_a_dense_one_does_not() {
     k.body.0.push(mma(dense));
     assert!(!decline(&k).starts_with(GAP_PREFIX));
 }
+
+#[test]
+fn a_dense_mma_declines_by_name_but_is_not_a_target_gap() {
+    use unpopped::mma::MmaAtom;
+    let atom = MmaAtom::nvidia_m16n8k16_f16_f32();
+    let (m, n, kk) = atom.mnk();
+    let _ = (m, n, kk);
+    let frag = |name: &str, which: usize, ek: ElementKind| {
+        AllocDecl::new(
+            name,
+            MemorySpace::Private,
+            ek,
+            Extent::Static(atom.values(which)),
+        )
+    };
+    let (ta, tb, tc) = atom.dtypes();
+    let mut k = empty()
+        .with_allocs(vec![
+            frag("a", 0, ta),
+            frag("b", 1, tb),
+            frag("c", 2, tc),
+            frag("d", 2, tc),
+        ])
+        .with_launch(unpopped::exec::LaunchShape::new([32, 1, 1], [1, 1, 1]).with_subgroup(32, 32));
+    k.body.0.push(Stmt::Mma {
+        atom: atom.clone(),
+        a: 0,
+        b: 1,
+        c: 2,
+        d: 3,
+        extra: vec![],
+    });
+    let d = decline(&k);
+    assert!(!d.starts_with(GAP_PREFIX), "{d}");
+    assert!(
+        d.contains("Mma: no cooperative-matrix shape for this atom"),
+        "{d}"
+    );
+    assert!(d.contains(atom.name()), "{d}");
+}
