@@ -477,6 +477,18 @@ fn stmts(
                     spell(kernel, desired)?
                 ));
             }
+            // Route (b) of doc row E15: no cooperative-matrix shape is mapped yet, so a dense `Mma` declines by name. Sparse and
+            // block-scaled atoms are target gaps and never get here. Mapping an atom to a `CoopMat` shape needs the device's
+            // shape list (row E19) and a device measurement.
+            Stmt::Mma { atom, .. } => {
+                return Err(LowerError::UnsupportedKernel {
+                    detail: format!(
+                        "slang: Mma: no cooperative-matrix shape for this atom `{}` (kernel `{}`)",
+                        atom.name(),
+                        kernel.name
+                    ),
+                });
+            }
             Stmt::Break => out.push_str(&format!("{p}break;\n")),
             Stmt::Continue => out.push_str(&format!("{p}continue;\n")),
             Stmt::Return => out.push_str(&format!("{p}return;\n")),
