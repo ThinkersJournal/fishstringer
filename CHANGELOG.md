@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.3.5 — `lower_kernel` lowers integer atomics (row 17 E10)
+
+`Slang::lower_kernel` now lowers `AtomicRmw` (`Add`, `Max`, `Min`, `And`, `Or`, `Xor`, `Exchange`) as `InterlockedAdd/Max/Min/And/Or/Xor/Exchange(dest, value[, old])` and `AtomicCas` as `InterlockedCompareExchange(dest, expected, desired[, old])`, on an `I32`/`U32` buffer element or `groupshared` element, with the optional old value in a local. Slang takes neither a scope nor a memory order (Vulkan fixes the scope by the storage), so both are dropped and the atomic is at least as strong as asked. Float atomics decline by name (`a float atomic (needs VK_EXT_shader_atomic_float ...)`), as do 64-bit ones: the emitter cannot yet say the device has the feature (row E19). A cluster scope or a peer place is a named target gap. A histogram with a shared max and a CAS lock, and every integer combine, compile to SPIR-V with `slangc`; the float and cluster declines are tested. Additive. Not run on a device.
+
 ## 0.3.4 — `lower_kernel` lowers lane, subgroup and device ids (row 17 E12)
 
 `Slang::lower_kernel` now lowers the remaining execution ids: `LaneId` is `WaveGetLaneIndex()`, `SubgroupSize` is `WaveGetLaneCount()`, `SubgroupId` is derived as `SV_GroupIndex / WaveGetLaneCount()` (the entry point gains an `SV_GroupIndex` argument), and `DeviceRank`/`DeviceCount` are the constants 0 and 1 (a multi-device launch is already a named gap). The subgroup ids read the device's subgroup size, so the sizes a kernel is valid for stay `LaunchShape::subgroup`, which the core-derived half of the `KernelInterface` already carries. A 3-D copy over an odd grid (block 4x2x2, grid 3x5x7) and every id compile to SPIR-V with `slangc`. Vulkan workgroup-size and dispatch limits are not checked by the emitter (they are device properties; row E19). Verified: workspace tests and `clippy -D warnings` pass. Not run on a device.

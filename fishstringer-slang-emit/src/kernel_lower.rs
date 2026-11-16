@@ -36,6 +36,12 @@
 //! Vulkan's workgroup-size and dispatch limits are device properties this emitter does not see: a launch over them is
 //! the launcher's error until the capability vocabulary of row E19 gives the emitter the limits to decline on.
 //!
+//! **Atomics (E10).** `AtomicRmw` is `InterlockedAdd/Max/Min/And/Or/Xor/Exchange(dest, value[, old])` and `AtomicCas`
+//! `InterlockedCompareExchange(dest, expected, desired[, old])`, on an `I32`/`U32` buffer or shared element. Slang takes
+//! neither scope nor memory order (Vulkan fixes the scope by the storage), so both are dropped: the result is at least as
+//! strong as asked. Float and 64-bit atomics decline by name until the capability vocabulary (row E19) can say the device
+//! has them; a cluster scope or a peer place is a target gap (`gaps.rs`).
+//!
 //! **Everything else is refused** with `UnsupportedKernel` and a reason saying what is not lowered yet; nothing is
 //! approximated. The gap scan in `gaps.rs` runs first, so a construct outside the target gets its own reason.
 
@@ -44,7 +50,9 @@ use unpopped::backend::{GeneratedKernel, LowerError};
 use unpopped::exec::{ExecId, Extent, MemorySpace, Scope};
 
 use unpopped::ir::{BinaryOp, ScalarExpr};
-use unpopped::kernel::{Block, BufferRole, KernelFn, ParamKind, Place, Stmt, check_kernel};
+use unpopped::kernel::{
+    AtomicOp, Block, BufferRole, KernelFn, ParamKind, Place, Stmt, check_kernel,
+};
 use unpopped::kernel_interface::{Binding, KernelInterface, ParamsBlock, ParamsBlockField};
 use unpopped_vocab::ElementKind;
 
@@ -279,6 +287,63 @@ fn stmts(
                 )),
                 _ => return Err(no(kernel, "a fence of this scope")),
             },
+            // Atomics (E10). `InterlockedX(dest, value[, out original])` on a buffer or `groupshared` element. Vulkan fixes the
+            // scope by the storage (device for a buffer, workgroup for shared) and Slang takes no memory order, so `scope` and
+            // `order` are not spelled; the atomic is at least as strong as asked. Float atomics need a device feature
+            // (`VK_EXT_shader_atomic_float`) the emitter cannot see yet (row E19), so they decline by name.
+            Stmt::AtomicRmw {
+                op,
+                place: pl,
+                value,
+                old,
+                ..
+            } => {
+                atomic_elem(kernel, pl)?;
+                let f = match op {
+                    AtomicOp::Add => "InterlockedAdd",
+                    AtomicOp::Max => "InterlockedMax",
+                    AtomicOp::Min => "InterlockedMin",
+                    AtomicOp::And => "InterlockedAnd",
+                    AtomicOp::Or => "InterlockedOr",
+                    AtomicOp::Xor => "InterlockedXor",
+                    AtomicOp::Exchange => "InterlockedExchange",
+                    _ => return Err(no(kernel, "this atomic operation")),
+                };
+                let tail = match old {
+                    Some(l) => {
+                        cx.declared.insert(*l);
+                        format!(", l{l}")
+                    }
+                    None => String::new(),
+                };
+                out.push_str(&format!(
+                    "{p}{f}({}, {}{tail});\n",
+                    place(kernel, pl)?,
+                    spell(kernel, value)?
+                ));
+            }
+            Stmt::AtomicCas {
+                place: pl,
+                expected,
+                desired,
+                old,
+                ..
+            } => {
+                atomic_elem(kernel, pl)?;
+                let tail = match old {
+                    Some(l) => {
+                        cx.declared.insert(*l);
+                        format!(", l{l}")
+                    }
+                    None => String::new(),
+                };
+                out.push_str(&format!(
+                    "{p}InterlockedCompareExchange({}, {}, {}{tail});\n",
+                    place(kernel, pl)?,
+                    spell(kernel, expected)?,
+                    spell(kernel, desired)?
+                ));
+            }
             Stmt::Break => out.push_str(&format!("{p}break;\n")),
             Stmt::Continue => out.push_str(&format!("{p}continue;\n")),
             Stmt::Return => out.push_str(&format!("{p}return;\n")),
@@ -286,6 +351,27 @@ fn stmts(
         }
     }
     Ok(())
+}
+
+/// The element type an atomic acts on; only the 32-bit integers have an atomic in core Vulkan compute.
+fn atomic_elem(kernel: &KernelFn, p: &Place) -> Result<(), LowerError> {
+    let elem = match p {
+        Place::Alloc { alloc, .. } => kernel.allocs.get(*alloc as usize).map(|a| a.elem),
+        Place::Logical { buffer, .. } => match kernel.params.get(*buffer as usize).map(|q| &q.kind)
+        {
+            Some(ParamKind::Buffer { elem, .. }) => Some(*elem),
+            _ => None,
+        },
+        _ => None,
+    };
+    match elem {
+        Some(ElementKind::I32 | ElementKind::U32) => Ok(()),
+        Some(ElementKind::F32) => Err(no(
+            kernel,
+            "a float atomic (needs VK_EXT_shader_atomic_float, a capability the emitter does not model yet)",
+        )),
+        _ => Err(no(kernel, "an atomic on this element type")),
+    }
 }
 
 fn place(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
