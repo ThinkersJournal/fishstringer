@@ -1,0 +1,3 @@
+kind: `lower_kernel` declines a dense `Mma` by name (row 17 E15 route b)
+---
+A dense `Mma` atom now declines with `slang: Mma: no cooperative-matrix shape for this atom `<name>` (kernel `<k>`)` instead of the generic "this statement is not lowered yet". It is not a target gap (no `slang target gap: ` prefix): mapping an atom to a `CoopMat` shape is route (a) of the coverage doc and needs the device's shape list (row E19) and a device measurement. Sparse and block-scaled atoms stay target gaps. Tested with a real `nvidia_m16n8k16_f16_f32` atom that passes `check_kernel`, with the control that the reason carries no gap prefix. Declines only; no kernel that lowered before changes.
