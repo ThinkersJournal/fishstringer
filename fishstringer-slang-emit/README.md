@@ -32,7 +32,7 @@ its git history is preserved. It moved to FishStringer, which owns Slang, on 202
 
 Each has its own test in `tests/slang_target_gaps_are_typed_declines.rs`. A kernel outside the list that `lower_kernel` does not lower yet declines with the generic "... is not lowered yet" reason instead, so the prefix tells "outside the target" from "not taught yet".
 
-Also declined by name (patent risk, board 434 ruling C; `docs/PATENT_SWEEP.md`): `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective`, `CollectiveTuple`. Slang to SPIR-V is a non-NVIDIA target.
+Also declined by name (patent risk, board 434 ruling C; `docs/PATENT_SWEEP.md`): `CopyAsync`, `AsyncCommit`, `AsyncWait`, `Collective`, `CollectiveTuple`. Slang to SPIR-V is a non-NVIDIA target. Also declined: possible exposure, board 434 C extended (NVIDIA US11803380B2; CireSnave 2026-11-16): `MbarInit`, `MbarArrive`, `MbarCompleteTx`, `MbarWait` and `CopyBulk` on an mbarrier. These statements are not in the IR of unpopped 0.47.0 (the newest on crates.io), so there is no arm or test yet; the arm and a test per statement land with the Unpopped release that adds them, and until then such a kernel cannot be built. `WgmmaWait` is on hold for CireSnave's answer.
 
 ## What `lower_kernel` lowers today
 

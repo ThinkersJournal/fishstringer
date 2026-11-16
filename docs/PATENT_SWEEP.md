@@ -39,3 +39,7 @@ Row E14 stays synchronous. Emitting any instruction or Vulkan extension feature 
 ## Not checked
 
 Competitors' instruction sets, and the Vulkan extension list for such a feature. Only what this repo emits was read.
+
+## NVIDIA US11803380B2 (mbarrier statements), 2026-11-16
+
+CireSnave 2026-11-16 (verbatim, via the PM): *"For that patent, we add a note about the potential for infringement if non-Nvidia-specific emitters lower those operations to hardware ops and we ensure our projects' emitters for other manufacturers' hardware know about that and we consider ourselves not infringing."* Statements: `MbarInit`, `MbarArrive`, `MbarCompleteTx`, `MbarWait`, `CopyBulk` on an mbarrier. **Declined: possible exposure, board 434 C extended.** The Slang/SPIR-V target is non-NVIDIA, so it never lowers them. State at unpopped 0.47.0 (crates.io max_version 0.47.0; no `Mbar*`, `CopyBulk` or `WgmmaWait` variant in `kernel.rs`): the statements do not exist yet, so no refusal arm or test is possible; both are owed when the variants ship (arm in `gaps.rs`, one test per statement). `WgmmaWait` is held for CireSnave's answer.
