@@ -141,3 +141,107 @@ fn multi_device_and_cluster_launches_decline_and_one_device_does_not() {
     l.cluster = Some([2, 1, 1]);
     gap(&empty().with_launch(l), "cluster launch");
 }
+
+// --- E18 completion: the gaps the list names that had no test of their own ---
+
+fn zero() -> unpopped::ir::ScalarExpr {
+    unpopped::ir::ScalarExpr::Const(0.0)
+}
+
+#[test]
+fn a_cluster_scope_fence_and_atomic_decline() {
+    use unpopped::kernel::{AtomicOp, MemoryOrder, Place};
+    let mut k = empty();
+    k.body.0.push(Stmt::Fence {
+        scope: Scope::Cluster,
+        order: MemoryOrder::AcqRel,
+    });
+    gap(&k, "fence at cluster scope");
+    let mut k = empty();
+    k.body.0.push(Stmt::AtomicRmw {
+        op: AtomicOp::Add,
+        place: Place::Alloc {
+            alloc: 0,
+            index: zero(),
+        },
+        value: zero(),
+        old: None,
+        order: MemoryOrder::Relaxed,
+        scope: Scope::Cluster,
+    });
+    gap(&k, "atomic at cluster scope");
+}
+
+#[test]
+fn a_copy_async_into_a_peer_place_declines_as_the_async_gap() {
+    use unpopped::kernel::Place;
+    let mut k = empty();
+    k.body.0.push(Stmt::CopyAsync {
+        dst: Place::ClusterPeer {
+            alloc: 0,
+            block: zero(),
+            index: zero(),
+        },
+        src: Place::Alloc {
+            alloc: 1,
+            index: zero(),
+        },
+        elems: 4,
+    });
+    // Whichever gap the scan meets first, the decline is a named gap, never a silent lowering.
+    let d = decline(&k);
+    assert!(d.starts_with(GAP_PREFIX), "{d}");
+}
+
+#[test]
+fn multicast_load_reduce_declines() {
+    use unpopped::kernel::{AtomicOp, MemoryOrder, Place};
+    let mut k = empty();
+    k.body.0.push(Stmt::MulticastLoadReduce {
+        local: 0,
+        place: Place::Multicast {
+            buffer: 0,
+            coords: vec![zero()],
+        },
+        op: AtomicOp::Add,
+        order: MemoryOrder::Relaxed,
+    });
+    gap(&k, "multicast");
+}
+
+#[test]
+fn sparse_and_block_scaled_mma_atoms_decline_and_a_dense_one_does_not() {
+    use unpopped::mma::MmaAtom;
+    use unpopped_vocab::layout_algebra::Layout;
+    let mma = |atom: MmaAtom| Stmt::Mma {
+        atom,
+        a: 0,
+        b: 1,
+        c: 2,
+        d: 3,
+        extra: vec![],
+    };
+    let leaf = |n: i64| Layout::leaf(n, 1).expect("a leaf layout");
+    let dense = MmaAtom::nvidia_m16n8k16_f16_f32();
+
+    let sparse = dense
+        .clone()
+        .with_sparse_24(&leaf(128), (ElementKind::U32, &leaf(64)))
+        .expect("a sparse atom");
+    let scaled = dense
+        .clone()
+        .with_block_scale(4, ElementKind::F32, (&leaf(64), &leaf(32)))
+        .expect("a block-scaled atom");
+
+    let mut k = empty();
+    k.body.0.push(mma(sparse));
+    gap(&k, "sparse (2:4) Mma atom");
+    let mut k = empty();
+    k.body.0.push(mma(scaled));
+    gap(&k, "block-scaled Mma atom");
+
+    // Control: the dense atom is not a gap (it is just not lowered yet).
+    let mut k = empty();
+    k.body.0.push(mma(dense));
+    assert!(!decline(&k).starts_with(GAP_PREFIX));
+}
