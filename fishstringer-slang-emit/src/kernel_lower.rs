@@ -42,6 +42,12 @@
 //! strong as asked. Float and 64-bit atomics decline by name until the capability vocabulary (row E19) can say the device
 //! has them; a cluster scope or a peer place is a target gap (`gaps.rs`).
 //!
+//! **16-bit floats (E11).** `F16` is `half`. `Bf16` has no Slang scalar: a buffer element is `uint16_t` (widened by
+//! `bf16_to_f32_`, narrowed by `f32_to_bf16_`, round-to-nearest-even), a local or allocation is a `float` holding a
+//! bf16-representable value, and each `Add`/`Sub`/`Mul` is rounded back (`bf16r_`). Needs `shaderFloat16` and 16-bit
+//! storage (a fidelity note until row E19). 16-bit scalar parameters, packed locals and fp8 decline. Not yet compared
+//! against the oracle exhaustively: that needs a device.
+//!
 //! **Everything else is refused** with `UnsupportedKernel` and a reason saying what is not lowered yet; nothing is
 //! approximated. The gap scan in `gaps.rs` runs first, so a construct outside the target gets its own reason.
 
@@ -68,11 +74,77 @@ fn no(kernel: &KernelFn, what: &str) -> LowerError {
 fn ctype(kernel: &KernelFn, dt: ElementKind) -> Result<&'static str, LowerError> {
     match dt {
         ElementKind::F32 => Ok("float"),
+        // `half` is native. `Bf16` has no Slang scalar: a value is a `float` that always holds a bf16-representable number,
+        // rounded after every operation, and is only 16 bits wide in a buffer (see `storage_ty`).
+        ElementKind::F16 => Ok("half"),
+        ElementKind::Bf16 => Ok("float"),
         ElementKind::I32 => Ok("int"),
         ElementKind::U32 => Ok("uint"),
         _ => Err(no(kernel, &format!("element type {dt:?}"))),
     }
 }
+
+/// What a buffer element is stored as: `Bf16` is its 16 raw bits, everything else is its compute type.
+fn storage_ty(kernel: &KernelFn, dt: ElementKind) -> Result<&'static str, LowerError> {
+    if dt == ElementKind::Bf16 {
+        return Ok("uint16_t");
+    }
+    ctype(kernel, dt)
+}
+
+/// The element type of a place.
+fn place_elem(kernel: &KernelFn, p: &Place) -> Option<ElementKind> {
+    match p {
+        Place::Alloc { alloc, .. } => kernel.allocs.get(*alloc as usize).map(|a| a.elem),
+        Place::Logical { buffer, .. } => match kernel.params.get(*buffer as usize).map(|q| &q.kind)
+        {
+            Some(ParamKind::Buffer { elem, .. }) => Some(*elem),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// A `Bf16` buffer element (not an allocation: those hold the compute `float` directly) needs a conversion on every access.
+fn is_bf16_buffer(kernel: &KernelFn, p: &Place) -> bool {
+    matches!(p, Place::Logical { .. }) && place_elem(kernel, p) == Some(ElementKind::Bf16)
+}
+
+/// Whether an expression is a `Bf16` value (so an arithmetic result must be rounded back to bf16).
+fn is_bf16(kernel: &KernelFn, e: &ScalarExpr) -> bool {
+    match e {
+        ScalarExpr::Local(i) => kernel
+            .locals
+            .get(*i as usize)
+            .is_some_and(|d| d.elem == ElementKind::Bf16),
+        ScalarExpr::Const(_) => kernel.compute == ElementKind::Bf16,
+        ScalarExpr::Add(a, b) | ScalarExpr::Sub(a, b) | ScalarExpr::Mul(a, b) => {
+            is_bf16(kernel, a) || is_bf16(kernel, b)
+        }
+        _ => false,
+    }
+}
+
+/// Round `v` to the nearest bf16 (ties to even), as the `f32_to_bf16_` helper does at run time.
+fn round_bf16(v: f64) -> f64 {
+    let f = v as f32;
+    if f.is_nan() || f.is_infinite() {
+        return f64::from(f);
+    }
+    let b = f.to_bits();
+    let r = (b.wrapping_add(0x7fff + ((b >> 16) & 1))) >> 16;
+    f64::from(f32::from_bits(r << 16))
+}
+
+const BF16_HELPERS: &str = "float bf16_to_f32_(uint16_t v) { return asfloat(((uint)v) << 16); }
+uint16_t f32_to_bf16_(float f)
+{
+    uint b = asuint(f);
+    if ((b & 0x7fffffffu) > 0x7f800000u) { return (uint16_t)((b >> 16) | 0x40u); } // NaN stays a (quiet) NaN
+    return (uint16_t)((b + 0x7fffu + ((b >> 16) & 1u)) >> 16);
+}
+float bf16r_(float f) { return bf16_to_f32_(f32_to_bf16_(f)); }
+";
 
 fn axis(a: u8) -> Option<&'static str> {
     ["x", "y", "z"].get(usize::from(a)).copied()
@@ -87,9 +159,24 @@ fn spell(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
             spell(kernel, b)?
         ))
     };
+    // A bf16 result is rounded after each operation, as the oracle does.
+    let arith = |a: &ScalarExpr, op: &str, b: &ScalarExpr| -> Result<String, LowerError> {
+        let t = bin(a, op, b)?;
+        Ok(if is_bf16(kernel, a) || is_bf16(kernel, b) {
+            format!("bf16r_{t}")
+        } else {
+            t
+        })
+    };
     match e {
         ScalarExpr::Local(i) => Ok(format!("l{i}")),
         ScalarExpr::Const(v) if kernel.compute == ElementKind::F32 => Ok(crate::slang_const(*v)),
+        ScalarExpr::Const(v) if kernel.compute == ElementKind::F16 => {
+            Ok(format!("((half){})", crate::slang_const(*v)))
+        }
+        ScalarExpr::Const(v) if kernel.compute == ElementKind::Bf16 => {
+            Ok(crate::slang_const(round_bf16(*v)))
+        }
         ScalarExpr::ConstInt(v, ek) => Ok(format!("(({}){v})", ctype(kernel, *ek)?)),
         ScalarExpr::Exec(ExecId::ThreadIdx(a)) => axis(*a)
             .map(|c| format!("tid_.{c}"))
@@ -114,9 +201,9 @@ fn spell(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
         ScalarExpr::Exec(ExecId::SubgroupId) => Ok("(gi_ / WaveGetLaneCount())".into()),
         ScalarExpr::Exec(ExecId::DeviceRank) => Ok("0u".into()),
         ScalarExpr::Exec(ExecId::DeviceCount) => Ok("1u".into()),
-        ScalarExpr::Add(a, b) => bin(a, "+", b),
-        ScalarExpr::Sub(a, b) => bin(a, "-", b),
-        ScalarExpr::Mul(a, b) => bin(a, "*", b),
+        ScalarExpr::Add(a, b) => arith(a, "+", b),
+        ScalarExpr::Sub(a, b) => arith(a, "-", b),
+        ScalarExpr::Mul(a, b) => arith(a, "*", b),
         ScalarExpr::Binary(op, a, b) => match cmp_op(*op) {
             Some(c) => bin(a, c, b),
             None => Err(no(kernel, "this expression")),
@@ -176,16 +263,15 @@ fn stmts(
             }
             Stmt::Load { local, place: pl } => {
                 cx.declared.insert(*local);
-                out.push_str(&format!("{p}l{local} = {};\n", place(kernel, pl)?));
+                out.push_str(&format!("{p}l{local} = {};\n", read(kernel, pl)?));
             }
             Stmt::Assign { local, value } => {
                 out.push_str(&format!("{p}l{local} = {};\n", spell(kernel, value)?));
             }
             Stmt::Store { place: pl, value } => {
                 out.push_str(&format!(
-                    "{p}{} = {};\n",
-                    place(kernel, pl)?,
-                    spell(kernel, value)?
+                    "{p}{};\n",
+                    write(kernel, pl, &spell(kernel, value)?)?
                 ));
             }
             // Memory is untouched when the mask is false, so the access sits inside the branch.
@@ -199,7 +285,7 @@ fn stmts(
                 out.push_str(&format!(
                     "{p}if ({}) {{ l{local} = {}; }} else {{ l{local} = {}; }}\n",
                     truth(kernel, mask)?,
-                    place(kernel, pl)?,
+                    read(kernel, pl)?,
                     spell(kernel, fill)?
                 ));
             }
@@ -209,10 +295,9 @@ fn stmts(
                 mask,
             } => {
                 out.push_str(&format!(
-                    "{p}if ({}) {{ {} = {}; }}\n",
+                    "{p}if ({}) {{ {}; }}\n",
                     truth(kernel, mask)?,
-                    place(kernel, pl)?,
-                    spell(kernel, value)?
+                    write(kernel, pl, &spell(kernel, value)?)?
                 ));
             }
             Stmt::If { cond, then, els } => {
@@ -374,6 +459,26 @@ fn atomic_elem(kernel: &KernelFn, p: &Place) -> Result<(), LowerError> {
     }
 }
 
+/// A place read as a value (a `Bf16` buffer element is widened to its `float`).
+fn read(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
+    let pl = place(kernel, p)?;
+    Ok(if is_bf16_buffer(kernel, p) {
+        format!("bf16_to_f32_({pl})")
+    } else {
+        pl
+    })
+}
+
+/// The statement text storing `value` to a place (a `Bf16` buffer element is rounded and narrowed).
+fn write(kernel: &KernelFn, p: &Place, value: &str) -> Result<String, LowerError> {
+    let pl = place(kernel, p)?;
+    Ok(if is_bf16_buffer(kernel, p) {
+        format!("{pl} = f32_to_bf16_({value})")
+    } else {
+        format!("{pl} = {value}")
+    })
+}
+
 fn place(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
     if let Place::Alloc { alloc, index } = p {
         return Ok(format!("a{alloc}[{}]", spell(kernel, index)?));
@@ -412,6 +517,25 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
     let mut s = String::new();
     s.push_str("// Generated by fishstringer-slang-emit (lower_kernel) — do not edit.\n");
     let mut iface = KernelInterface::of(kernel).with_entry_symbol(entry.clone());
+    // 16-bit floats: `half` needs the 16-bit arithmetic and storage features; `Bf16` is `uint16_t` storage plus helpers.
+    let mut elems = vec![kernel.compute];
+    elems.extend(kernel.locals.iter().map(|d| d.elem));
+    elems.extend(kernel.allocs.iter().map(|a| a.elem));
+    for q in &kernel.params {
+        if let ParamKind::Buffer { elem, .. } = &q.kind {
+            elems.push(*elem);
+        }
+    }
+    let uses_bf16 = elems.contains(&ElementKind::Bf16);
+    let uses_f16 = elems.contains(&ElementKind::F16);
+    if uses_bf16 {
+        s.push_str(BF16_HELPERS);
+    }
+    if uses_bf16 || uses_f16 {
+        iface = iface.with_fidelity_note(
+            "16-bit floats: needs shaderFloat16 and 16-bit storage (bf16 is uint16_t storage with float arithmetic rounded to bf16 after each operation, round-to-nearest-even)",
+        );
+    }
     // Pass 1: bindings (buffers get dense slots in order) and the params block fields.
     let mut decls = String::new();
     let mut members = String::new();
@@ -424,7 +548,7 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
                 let Some(rank) = rank else {
                     return Err(no(kernel, "a buffer whose rank is not declared"));
                 };
-                let ty = ctype(kernel, *elem)?;
+                let ty = storage_ty(kernel, *elem)?;
                 let qual = match role {
                     BufferRole::Read => "StructuredBuffer",
                     _ => "RWStructuredBuffer",
@@ -443,6 +567,9 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
                 block.push((format!("b{i}_base"), ElementKind::I64));
             }
             ParamKind::Scalar { ty, local } => {
+                if matches!(ty, ElementKind::F16 | ElementKind::Bf16) {
+                    return Err(no(kernel, "a 16-bit float scalar parameter"));
+                }
                 let t = ctype(kernel, *ty)?;
                 members.push_str(&format!("    {t} p{i};\n"));
                 block.push((format!("p{i}"), *ty));
@@ -519,7 +646,13 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
     }
     s.push_str(&body);
     s.push_str("}\n");
-    for a in crate::required_slangc_args(kernel.compute) {
+    // bf16 arithmetic runs in `float`, so it takes the float denorm argument.
+    let arg_dt = if uses_bf16 {
+        ElementKind::F32
+    } else {
+        kernel.compute
+    };
+    for a in crate::required_slangc_args(arg_dt) {
         iface = iface.with_compiler_arg(*a);
     }
     Ok(GeneratedKernel::new(entry, s).with_interface(iface))
