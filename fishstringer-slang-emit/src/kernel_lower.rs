@@ -64,7 +64,8 @@ use unpopped::exec::{ExecId, Extent, MemorySpace, Scope};
 
 use unpopped::ir::{BinaryOp, RoundMode, Saturation, ScalarExpr};
 use unpopped::kernel::{
-    AtomicOp, Block, BufferRole, KernelFn, ParamKind, Place, Stmt, check_kernel,
+    AtomicOp, Block, BufferRole, CallArg, KernelFn, Module, ParamKind, Place, Stmt, check_kernel,
+    check_module,
 };
 use unpopped::kernel_interface::{Binding, KernelInterface, ParamsBlock, ParamsBlockField};
 use unpopped_vocab::ElementKind;
@@ -181,7 +182,8 @@ fn axis(a: u8) -> Option<&'static str> {
 }
 
 fn spell(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
-    let launch = kernel.launch.as_ref().expect("checked by the caller");
+    // A callee has no launch: BlockDim/GridDim in it are declined by name; the entry always has one.
+    let launch = kernel.launch.as_ref();
     let bin = |a: &ScalarExpr, op: &str, b: &ScalarExpr| -> Result<String, LowerError> {
         Ok(format!(
             "({} {op} {})",
@@ -215,11 +217,13 @@ fn spell(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
             .map(|c| format!("bid_.{c}"))
             .ok_or_else(|| no(kernel, "BlockIdx axis")),
         ScalarExpr::Exec(ExecId::BlockDim(a)) => launch
+            .ok_or_else(|| no(kernel, "a launch id in a callee"))?
             .block
             .get(usize::from(*a))
             .map(|n| format!("{n}u"))
             .ok_or_else(|| no(kernel, "BlockDim axis")),
         ScalarExpr::Exec(ExecId::GridDim(a)) => launch
+            .ok_or_else(|| no(kernel, "a launch id in a callee"))?
             .grid
             .get(usize::from(*a))
             .map(|n| format!("{n}u"))
@@ -289,6 +293,17 @@ struct Cx {
     declared: BTreeSet<u32>,
     /// Counter for the temporaries a loop's bound needs.
     tmp: u32,
+    /// The module a `Call` or `ExternCall` resolves against (E16); `None` for a lone kernel.
+    module: Option<std::rc::Rc<ModInfo>>,
+    /// What a `Return` returns in a callee with a result (`l<r>`); `None` in an entry and a void callee.
+    ret: Option<String>,
+}
+
+/// What a call site needs to know about the module: each function's Slang name and whether it returns a value, and each
+/// extern's name and reference function.
+struct ModInfo {
+    fns: Vec<(String, bool)>,
+    externs: Vec<(String, Option<u32>)>,
 }
 
 fn pad(ind: usize) -> String {
@@ -492,7 +507,80 @@ fn stmts(
             }
             Stmt::Break => out.push_str(&format!("{p}break;\n")),
             Stmt::Continue => out.push_str(&format!("{p}continue;\n")),
-            Stmt::Return => out.push_str(&format!("{p}return;\n")),
+            Stmt::Return => match &cx.ret {
+                Some(r) => out.push_str(&format!("{p}return {r};\n")),
+                None => out.push_str(&format!("{p}return;\n")),
+            },
+            // Calls (E16). Scalar arguments by value only; a callee is a Slang function `f<index>`. An `ExternCall` with a
+            // `reference` kernel emits a call of the reference body (its semantics are the declaration's by construction).
+            Stmt::Call {
+                callee,
+                args,
+                result,
+            } => {
+                let mi = cx
+                    .module
+                    .clone()
+                    .ok_or_else(|| no(kernel, "Call outside a module"))?;
+                let mut a = Vec::new();
+                for x in args {
+                    match x {
+                        CallArg::Scalar(e) => a.push(spell(kernel, e)?),
+                        _ => return Err(no(kernel, "Call: a buffer or allocation argument")),
+                    }
+                }
+                let (name, _) = mi
+                    .fns
+                    .get(*callee as usize)
+                    .ok_or_else(|| no(kernel, "Call: an unknown callee"))?;
+                let call = format!("{name}({})", a.join(", "));
+                match result {
+                    Some(r) => {
+                        cx.declared.insert(*r);
+                        out.push_str(&format!("{p}l{r} = {call};\n"));
+                    }
+                    None => out.push_str(&format!("{p}{call};\n")),
+                }
+            }
+            Stmt::ExternCall {
+                decl,
+                args,
+                results,
+            } => {
+                let mi = cx
+                    .module
+                    .clone()
+                    .ok_or_else(|| no(kernel, "ExternCall outside a module"))?;
+                let (ename, reference) = mi
+                    .externs
+                    .get(*decl as usize)
+                    .ok_or_else(|| no(kernel, "ExternCall: an unknown declaration"))?;
+                let Some(fi) = reference else {
+                    return Err(LowerError::UnsupportedKernel {
+                        detail: format!(
+                            "slang: ExternCall: no Slang body for extern `{ename}` (kernel `{}`)",
+                            kernel.name
+                        ),
+                    });
+                };
+                if results.len() > 1 {
+                    return Err(no(kernel, "ExternCall with several results"));
+                }
+                let (name, _) = &mi.fns[*fi as usize];
+                let mut a = Vec::new();
+                for x in args {
+                    a.push(spell(kernel, x)?);
+                }
+                let call = format!("{name}({})", a.join(", "));
+                match results.first() {
+                    Some(r) => {
+                        cx.declared.insert(*r);
+                        out.push_str(&format!("{p}l{r} = {call};\n"));
+                    }
+                    None => out.push_str(&format!("{p}{call};\n")),
+                }
+            }
+            Stmt::CallTuple { .. } => return Err(no(kernel, "CallTuple")),
             _ => return Err(no(kernel, "this statement")),
         }
     }
@@ -565,6 +653,15 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
             kernel.name
         ),
     })?;
+    lower_entry(kernel, None, "")
+}
+
+/// The entry kernel, with `prelude` (the callee functions) ahead of the entry point and `mcx` to resolve calls.
+fn lower_entry(
+    kernel: &KernelFn,
+    mcx: Option<std::rc::Rc<ModInfo>>,
+    prelude: &str,
+) -> Result<GeneratedKernel, LowerError> {
     let Some(launch) = kernel.launch.as_ref() else {
         return Err(no(kernel, "a kernel with no launch"));
     };
@@ -691,6 +788,7 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
         }
     }
     let [bx, by, bz] = launch.block;
+    s.push_str(prelude);
     s.push_str(&format!(
         "[shader(\"compute\")]\n[numthreads({bx}, {by}, {bz})]\nvoid {entry}(uint3 tid_ : SV_GroupThreadID, uint3 bid_ : SV_GroupID, uint gi_ : SV_GroupIndex)\n{{\n"
     ));
@@ -698,7 +796,10 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
     s.push_str(&private);
     // Statements first (collecting every local they declare), then the declarations, hoisted to the top of the entry:
     // the IR scopes a local by its declaring statement, the source declares it once where every use can see it.
-    let mut cx = Cx::default();
+    let mut cx = Cx {
+        module: mcx,
+        ..Cx::default()
+    };
     let mut body = String::new();
     stmts(kernel, &kernel.body, 1, &mut cx, &mut body)?;
     for l in &cx.declared {
@@ -746,4 +847,145 @@ fn local_ty(kernel: &KernelFn, local: u32) -> Result<&'static str, LowerError> {
         return Err(no(kernel, "a packed (multi-lane) local"));
     }
     ctype(kernel, d.elem)
+}
+
+/// Every function `b` calls, directly: a `Call`'s callee and an `ExternCall`'s reference kernel.
+fn callees(m: &Module, b: &Block, out: &mut Vec<u32>) {
+    for st in &b.0 {
+        match st {
+            Stmt::Call { callee, .. } | Stmt::CallTuple { callee, .. } => out.push(*callee),
+            Stmt::ExternCall { decl, .. } => {
+                if let Some(r) = m.externs.get(*decl as usize).and_then(|d| d.reference) {
+                    out.push(r);
+                }
+            }
+            Stmt::If { then, els, .. } => {
+                callees(m, then, out);
+                callees(m, els, out);
+            }
+            Stmt::For { body, .. } | Stmt::While { body, .. } => callees(m, body, out),
+            _ => {}
+        }
+    }
+}
+
+/// Lower the module's `entry` kernel with every function it reaches as a Slang function ahead of it (E16). The checker
+/// resolves the calls (no cycle, valid callees) first; the callees come out callee-first.
+pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, LowerError> {
+    let Some(ek) = m.fns.get(entry as usize) else {
+        return Err(LowerError::UnsupportedKernel {
+            detail: format!("slang: the module has no entry function {entry}"),
+        });
+    };
+    check_module(m, entry).map_err(|e| LowerError::UnsupportedKernel {
+        detail: format!(
+            "slang: the kernel-layer checker refuses module entry `{}`: {e:?}",
+            ek.name
+        ),
+    })?;
+    // Reachable functions, callee-first (the call graph is acyclic: the checker said so).
+    fn visit(m: &Module, f: u32, seen: &mut Vec<u32>, order: &mut Vec<u32>) {
+        if seen.contains(&f) {
+            return;
+        }
+        seen.push(f);
+        let mut cs = Vec::new();
+        callees(m, &m.fns[f as usize].body, &mut cs);
+        for c in cs {
+            visit(m, c, seen, order);
+        }
+        order.push(f);
+    }
+    let (mut seen, mut order) = (Vec::new(), Vec::new());
+    visit(m, entry, &mut seen, &mut order);
+    let mi = std::rc::Rc::new(ModInfo {
+        fns: m
+            .fns
+            .iter()
+            .enumerate()
+            .map(|(i, f)| (format!("f{i}"), f.result.is_some()))
+            .collect(),
+        externs: m
+            .externs
+            .iter()
+            .map(|d| (d.name.clone(), d.reference))
+            .collect(),
+    });
+    let mut prelude = String::new();
+    for f in order {
+        let k = &m.fns[f as usize];
+        if let Some(gap) = crate::gaps::first_gap(k) {
+            return Err(LowerError::UnsupportedKernel {
+                detail: format!("{}{gap} (kernel `{}`)", crate::gaps::GAP_PREFIX, k.name),
+            });
+        }
+        if f == entry {
+            continue;
+        }
+        prelude.push_str(&lower_callee(k, f, &mi)?);
+    }
+    if let Some(gap) = crate::gaps::first_gap(ek) {
+        return Err(LowerError::UnsupportedKernel {
+            detail: format!("{}{gap} (kernel `{}`)", crate::gaps::GAP_PREFIX, ek.name),
+        });
+    }
+    lower_entry(ek, Some(mi), &prelude)
+}
+
+/// One callee as a Slang function `f<index>`: scalar parameters by value, the result local returned, no launch, no
+/// allocations, no 16-bit floats, no launch ids (a callee takes no hidden state).
+fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<String, LowerError> {
+    if k.launch.is_some() || !k.allocs.is_empty() {
+        return Err(no(k, "a callee with a launch or an allocation"));
+    }
+    if !k.results.is_empty() {
+        return Err(no(k, "a callee with a tuple result"));
+    }
+    let mut params = Vec::new();
+    let mut prologue = String::new();
+    for (i, p) in k.params.iter().enumerate() {
+        match &p.kind {
+            ParamKind::Scalar { ty, local } => {
+                if matches!(ty, ElementKind::F16 | ElementKind::Bf16) {
+                    return Err(no(k, "a callee with a 16-bit float parameter"));
+                }
+                let t = ctype(k, *ty)?;
+                params.push(format!("{t} p{i}"));
+                prologue.push_str(&format!("    {t} l{local} = p{i};\n"));
+            }
+            _ => return Err(no(k, "a callee with a buffer parameter")),
+        }
+    }
+    if k.locals
+        .iter()
+        .any(|d| matches!(d.elem, ElementKind::F16 | ElementKind::Bf16))
+    {
+        return Err(no(k, "a callee with a 16-bit float local"));
+    }
+    let ret_ty = match k.result {
+        Some(r) => local_ty(k, r)?,
+        None => "void",
+    };
+    let mut cx = Cx {
+        module: Some(mi.clone()),
+        ret: k.result.map(|r| format!("l{r}")),
+        ..Cx::default()
+    };
+    let mut body = String::new();
+    stmts(k, &k.body, 1, &mut cx, &mut body)?;
+    if ["tid_", "bid_", "gi_"].iter().any(|n| body.contains(n)) {
+        return Err(no(k, "a callee that reads a launch id"));
+    }
+    let mut s = format!("{ret_ty} f{f}({})\n{{\n", params.join(", "));
+    s.push_str(&prologue);
+    for l in &cx.declared {
+        let ty = local_ty(k, *l)?;
+        s.push_str(&format!("    {ty} l{l} = ({ty})0;\n"));
+    }
+    s.push_str(&body);
+    if let Some(r) = &cx.ret {
+        s.push_str(&format!("    return {r};\n"));
+    }
+    s.push_str("}\n");
+    Ok(s)
 }
