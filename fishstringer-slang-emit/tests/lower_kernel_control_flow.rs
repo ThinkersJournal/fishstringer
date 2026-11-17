@@ -53,6 +53,7 @@ fn positive_sum(step: ScalarExpr) -> KernelFn {
                 start: ScalarExpr::ConstInt(0, ElementKind::U32),
                 end: l(2),
                 step,
+                unroll: unpopped::kernel::Unroll::None,
                 body: Block(vec![
                     Stmt::MaskedLoad {
                         local: 3,

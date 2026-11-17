@@ -138,6 +138,7 @@ fn paged_gather() -> KernelFn {
             start: ci(0, i32t),
             end: l(6),
             step: ci(1, i32t),
+            unroll: unpopped::kernel::Unroll::None,
             body: rows,
         },
     ]);
@@ -166,6 +167,7 @@ fn paged_gather() -> KernelFn {
             start: l(0),
             end: l(1),
             step: ci(1, i32t),
+            unroll: unpopped::kernel::Unroll::None,
             body: pages,
         },
         Stmt::Store {

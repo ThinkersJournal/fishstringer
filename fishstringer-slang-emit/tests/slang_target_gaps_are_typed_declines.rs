@@ -301,16 +301,51 @@ fn the_patent_flagged_mbarrier_and_matrix_wait_statements_decline_by_name() {
     };
     let one = || ScalarExpr::ConstInt(1, ElementKind::U32);
     let cases: Vec<(Stmt, &str)> = vec![
-        (Stmt::MbarInit { bar: bar(), count: one() }, "mbarrier statement"),
-        (Stmt::MbarArrive { bar: bar(), tx: None }, "mbarrier statement"),
-        (Stmt::MbarCompleteTx { bar: bar(), bytes: one() }, "mbarrier statement"),
-        (Stmt::MbarWait { bar: bar(), parity: one() }, "mbarrier statement"),
         (
-            Stmt::CopyBulk { dst: bar(), src: bar(), elems: 4, bar: bar() },
+            Stmt::MbarInit {
+                bar: bar(),
+                count: one(),
+            },
             "mbarrier statement",
         ),
-        (Stmt::WgmmaWait { pending: 0 }, "pending-matrix-multiply wait"),
-        (Stmt::Tcgen05Commit { bar: bar() }, "pending-matrix-multiply wait"),
+        (
+            Stmt::MbarArrive {
+                bar: bar(),
+                tx: None,
+            },
+            "mbarrier statement",
+        ),
+        (
+            Stmt::MbarCompleteTx {
+                bar: bar(),
+                bytes: one(),
+            },
+            "mbarrier statement",
+        ),
+        (
+            Stmt::MbarWait {
+                bar: bar(),
+                parity: one(),
+            },
+            "mbarrier statement",
+        ),
+        (
+            Stmt::CopyBulk {
+                dst: bar(),
+                src: bar(),
+                elems: 4,
+                bar: bar(),
+            },
+            "mbarrier statement",
+        ),
+        (
+            Stmt::WgmmaWait { pending: 0 },
+            "pending-matrix-multiply wait",
+        ),
+        (
+            Stmt::Tcgen05Commit { bar: bar() },
+            "pending-matrix-multiply wait",
+        ),
     ];
     for (st, what) in cases {
         let mut k = empty();
