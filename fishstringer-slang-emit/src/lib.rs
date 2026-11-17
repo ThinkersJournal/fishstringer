@@ -302,6 +302,24 @@ pub fn required_slangc_args(dtype: ElementKind) -> &'static [&'static str] {
     }
 }
 
+impl Slang {
+    /// Lower the module's `entry` kernel with every function it calls (E16): a `Call` with scalar arguments becomes a Slang
+    /// function `f<index>`, and an `ExternCall` with a `reference` kernel emits that reference body. An extern with no
+    /// reference, a buffer or allocation argument, `CallTuple`, and a callee that reads a launch id are typed declines
+    /// (`UnsupportedKernel`, reasons starting `slang: `). The module goes through `check_module` first.
+    ///
+    /// # Errors
+    ///
+    /// [`LowerError::UnsupportedKernel`] when the module or one of its functions cannot be lowered.
+    pub fn lower_module(
+        &self,
+        module: &unpopped::kernel::Module,
+        entry: u32,
+    ) -> Result<GeneratedKernel, LowerError> {
+        kernel_lower::lower_module(module, entry)
+    }
+}
+
 impl Backend for Slang {
     fn name(&self) -> &str {
         "slang"
