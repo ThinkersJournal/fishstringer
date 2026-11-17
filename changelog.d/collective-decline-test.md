@@ -1,0 +1,3 @@
+kind: tests pin the by-name refusal of `Collective` and `CollectiveTuple`, nested (no behaviour change)
+---
+A test (`collective_and_collective_tuple_decline_by_name_including_nested`) refuses every kind it builds (`Reduce`, `Scan`, `Broadcast`) as a `Collective` and as a `CollectiveTuple`, at the top level and nested in `If`, `For` and `While` bodies up to depth three (36 placements, counted), each with the `slang target gap: collective statement ... PATENT_SWEEP` reason (board 434 C). Control: the same nesting around a `Break` is not a gap. Mutation controls, each run and each failing the test: dropping the `Collective` arm, dropping the `For`/`While` recursion in `gaps.rs`, dropping the `If` recursion. `Shuffle` and `Vote` kinds are not built here. No code change.

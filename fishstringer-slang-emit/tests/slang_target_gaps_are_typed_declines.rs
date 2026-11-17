@@ -354,3 +354,88 @@ fn the_patent_flagged_mbarrier_and_matrix_wait_statements_decline_by_name() {
         gap(&k, "board 434 C extended");
     }
 }
+
+/// Board 434 C: `Collective` and `CollectiveTuple` (every kind) are refused by name, at the top level and nested inside
+/// `If`, `For` and `While` bodies at depth. The control (an empty kernel, and the same nesting around a harmless
+/// statement) gets no gap prefix, so the nesting walk is what finds the collective.
+#[test]
+fn collective_and_collective_tuple_decline_by_name_including_nested() {
+    use unpopped::ir::{ReduceOp, ScalarExpr};
+    use unpopped::kernel::CollectiveKind;
+    let one = || ScalarExpr::Const(1.0);
+    let single = |kind: CollectiveKind| Stmt::Collective {
+        kind,
+        value: one(),
+        result: 0,
+        scope: Scope::Subgroup,
+    };
+    let tuple = |kind: CollectiveKind| Stmt::CollectiveTuple {
+        kind,
+        values: vec![one(), one()],
+        results: vec![0, 1],
+        scope: Scope::Subgroup,
+    };
+    let kinds = || {
+        vec![
+            CollectiveKind::Reduce(ReduceOp::Sum),
+            CollectiveKind::Scan {
+                op: ReduceOp::Sum,
+                exclusive: false,
+            },
+            CollectiveKind::Broadcast { lane: zero() },
+        ]
+    };
+    // Wrap `inner` as the only statement at depth: If { For { While { inner } } }, and one level of each alone.
+    let wrap = |inner: Stmt| -> Vec<Stmt> {
+        let w = |s: Stmt| Stmt::While {
+            cond: one(),
+            body: Block(vec![s]),
+        };
+        let f = |s: Stmt| Stmt::For {
+            local: 0,
+            start: zero(),
+            end: one(),
+            step: ScalarExpr::ConstInt(1, ElementKind::U32),
+            body: Block(vec![s]),
+            unroll: unpopped::kernel::Unroll::None,
+        };
+        let i = |s: Stmt| Stmt::If {
+            cond: one(),
+            then: Block(vec![s]),
+            els: Block(vec![]),
+        };
+        vec![
+            inner.clone(),
+            i(inner.clone()),
+            f(inner.clone()),
+            w(inner.clone()),
+            i(f(w(inner.clone()))),
+            Stmt::If {
+                cond: one(),
+                then: Block(vec![]),
+                els: Block(vec![w(i(inner))]),
+            },
+        ]
+    };
+    let mut n = 0;
+    for kind in kinds() {
+        for st in wrap(single(kind.clone()))
+            .into_iter()
+            .chain(wrap(tuple(kind)))
+        {
+            let mut k = empty();
+            k.body.0.push(st);
+            gap(&k, "collective statement");
+            gap(&k, "PATENT_SWEEP");
+            n += 1;
+        }
+    }
+    // 3 kinds x 2 statements x 6 placements: none was skipped.
+    assert_eq!(n, 36);
+    // Control: the same nesting around a harmless statement is not a gap.
+    for st in wrap(Stmt::Break) {
+        let mut k = empty();
+        k.body.0.push(st);
+        assert!(!decline(&k).starts_with(GAP_PREFIX));
+    }
+}
