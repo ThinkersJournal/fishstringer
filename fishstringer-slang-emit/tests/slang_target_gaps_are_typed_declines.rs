@@ -187,6 +187,9 @@ fn a_copy_async_into_a_peer_place_declines_as_the_async_gap() {
             index: zero(),
         },
         elems: 4,
+        valid: None,
+        cache: unpopped::kernel::CacheHint::Auto,
+        l2_prefetch: None,
     });
     // Whichever gap the scan meets first, the decline is a named gap, never a silent lowering.
     let d = decline(&k);
@@ -284,4 +287,70 @@ fn a_dense_mma_declines_by_name_but_is_not_a_target_gap() {
         "{d}"
     );
     assert!(d.contains(atom.name()), "{d}");
+}
+
+/// Board 434 C extended (CireSnave 2026-11-16): NVIDIA US11803380B2, US12204897B2, US12710961B2. Each statement is
+/// refused by name; the control (an empty kernel) gets no gap prefix.
+#[test]
+fn the_patent_flagged_mbarrier_and_matrix_wait_statements_decline_by_name() {
+    use unpopped::ir::ScalarExpr;
+    use unpopped::kernel::Place;
+    let bar = || Place::Alloc {
+        alloc: 0,
+        index: ScalarExpr::ConstInt(0, ElementKind::U32),
+    };
+    let one = || ScalarExpr::ConstInt(1, ElementKind::U32);
+    let cases: Vec<(Stmt, &str)> = vec![
+        (
+            Stmt::MbarInit {
+                bar: bar(),
+                count: one(),
+            },
+            "mbarrier statement",
+        ),
+        (
+            Stmt::MbarArrive {
+                bar: bar(),
+                tx: None,
+            },
+            "mbarrier statement",
+        ),
+        (
+            Stmt::MbarCompleteTx {
+                bar: bar(),
+                bytes: one(),
+            },
+            "mbarrier statement",
+        ),
+        (
+            Stmt::MbarWait {
+                bar: bar(),
+                parity: one(),
+            },
+            "mbarrier statement",
+        ),
+        (
+            Stmt::CopyBulk {
+                dst: bar(),
+                src: bar(),
+                elems: 4,
+                bar: bar(),
+            },
+            "mbarrier statement",
+        ),
+        (
+            Stmt::WgmmaWait { pending: 0 },
+            "pending-matrix-multiply wait",
+        ),
+        (
+            Stmt::Tcgen05Commit { bar: bar() },
+            "pending-matrix-multiply wait",
+        ),
+    ];
+    for (st, what) in cases {
+        let mut k = empty();
+        k.body.0.push(st);
+        gap(&k, what);
+        gap(&k, "board 434 C extended");
+    }
 }

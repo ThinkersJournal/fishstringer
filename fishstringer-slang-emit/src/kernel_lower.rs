@@ -52,6 +52,9 @@
 //! `F32`/`F16` (`NearestEven`, `Wrap`); float to int, other modes and `Bf16` decline. A buffer index is 32-bit in Slang, so
 //! a cache past 2^32 elements is the launcher's to keep out. Integer `Div`/`Rem` are not in the IR: loop over pages.
 //!
+//! **Required capabilities (E19).** The interface's `requires` lists the `vulkan:` `<arith>` tokens the source needs (`i64`,
+//! `f16`, `st16`, `i16`); the consumer gates on them against its target. The emitter sees no target.
+//!
 //! **Everything else is refused** with `UnsupportedKernel` and a reason saying what is not lowered yet; nothing is
 //! approximated. The gap scan in `gaps.rs` runs first, so a construct outside the target gets its own reason.
 
@@ -367,6 +370,7 @@ fn stmts(
                 end,
                 step,
                 body,
+                ..
             } => {
                 // The oracle traps on a zero step and a GPU cannot, so only a constant, nonzero step is emitted.
                 let ScalarExpr::ConstInt(k, _) = step else {
@@ -711,6 +715,24 @@ pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
     };
     for a in crate::required_slangc_args(arg_dt) {
         iface = iface.with_compiler_arg(*a);
+    }
+    // Capabilities the source needs, as `vulkan:` `<arith>` tokens (doc row E19). `with_requires` only records the name; the
+    // consumer that holds the target gates on it (`crate::unmet_requirements`). Sorted, so the list is stable.
+    let mut needs = BTreeSet::new();
+    if s.contains("int64_t") {
+        needs.insert("i64");
+    }
+    if uses_f16 {
+        needs.insert("f16");
+        needs.insert("st16");
+    }
+    if uses_bf16 {
+        // `uint16_t` buffer elements: 16-bit integer type plus 16-bit storage access.
+        needs.insert("i16");
+        needs.insert("st16");
+    }
+    for n in needs {
+        iface = iface.with_requires(n);
     }
     Ok(GeneratedKernel::new(entry, s).with_interface(iface))
 }

@@ -270,6 +270,27 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> DtypeSupport {
     }
 }
 
+/// The capability tokens `lower_kernel` may put in `KernelInterface::requires`, spelled as the `<arith>` names of the `vulkan:`
+/// namespace. Copied from `kiss-vulkan-vocab` `Arith::NAMES` at Vulkane commit `e55e7fbc2090acc54d9a8e02b80b01f59a5a656c`
+/// (`dot8 f16 f64 i16 i64 i8 st16 st8`); the atomics names `a64`, `af32`, `af64` are decided but wait for vocab 7. Nothing in
+/// unpopped checks `requires` against a target and a name is free-form, so a test pins the emitter's tokens to this list.
+pub const VULKAN_ARITH_TOKENS: &[&str] = &["dot8", "f16", "f64", "i16", "i64", "i8", "st16", "st8"];
+
+/// The tokens in `interface.requires` that a target does not offer, in order. `target_arith` is the target's `<arith>` names.
+/// This is the consumer-side gate (a launcher or Vulkane calls it with the device's tokens); the emitter never sees a target.
+#[must_use]
+pub fn unmet_requirements<'a>(
+    interface: &'a unpopped::kernel_interface::KernelInterface,
+    target_arith: &[&str],
+) -> Vec<&'a str> {
+    interface
+        .requires
+        .iter()
+        .map(String::as_str)
+        .filter(|t| !target_arith.contains(t))
+        .collect()
+}
+
 /// The `slangc` arguments a kernel of `dtype` needs for its subnormals to follow IEEE, as SPIR-V
 /// `DenormPreserve`. Empty for integer dtypes. See the module docs ("Subnormals") for why this
 /// is a compile argument and why it is not gated on device properties.
