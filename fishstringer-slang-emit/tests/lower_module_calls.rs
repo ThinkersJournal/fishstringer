@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Row 17 / E16: `Slang::lower_module` lowers a module whose entry calls helper functions and externs. A scalar-argument
 //! `Call` with a result becomes a Slang function, and an `ExternCall` with a `reference` kernel emits the reference body.
-//! A buffer argument is passed by alias (binding, strides, base). An extern with no reference, an allocation argument, a tuple call and a launch-id read in a callee stay typed declines.
+//! A buffer argument is passed by alias (binding, strides, base). A callee with several results returns a struct and a `CallTuple` unpacks it. An extern with no reference, an allocation argument and a launch-id read in a callee stay typed declines.
 
 use std::process::Command;
 
@@ -224,7 +224,7 @@ fn a_buffer_argument_is_passed_by_alias_with_its_strides_and_compiles() {
 }
 
 #[test]
-fn an_allocation_argument_and_a_tuple_call_are_named_declines() {
+fn an_allocation_argument_is_a_named_decline() {
     let m = Module::new(vec![
         entry(vec![Stmt::Call {
             callee: 1,
@@ -234,19 +234,6 @@ fn an_allocation_argument_and_a_tuple_call_are_named_declines() {
         writer(BufferRole::ReadWrite),
     ]);
     assert!(decline(&m).contains("allocation"), "{}", decline(&m));
-
-    let m = Module::new(vec![
-        entry(vec![Stmt::CallTuple {
-            callee: 1,
-            args: vec![
-                CallArg::Scalar(ScalarExpr::Const(2.0)),
-                CallArg::Scalar(ScalarExpr::Const(3.0)),
-            ],
-            results: vec![0],
-        }]),
-        helper(),
-    ]);
-    assert!(decline(&m).contains("CallTuple"), "{}", decline(&m));
 }
 
 #[test]
@@ -304,4 +291,89 @@ fn a_cyclic_module_is_refused_by_the_checker() {
         a,
     ]);
     assert!(decline(&m).contains("checker"), "{}", decline(&m));
+}
+
+/// `fn(a, b) -> (a * b, a + b)`: result local 2, extra result local 3.
+fn pair_helper() -> KernelFn {
+    KernelFn::new(
+        "pair",
+        F,
+        vec![Param::scalar("a", F, 0), Param::scalar("b", F, 1)],
+        vec![LocalDecl::scalar(F); 4],
+        Block(vec![
+            Stmt::Let {
+                local: 2,
+                init: ScalarExpr::Mul(Box::new(l(0)), Box::new(l(1))),
+            },
+            Stmt::Let {
+                local: 3,
+                init: ScalarExpr::Add(Box::new(l(0)), Box::new(l(1))),
+            },
+        ]),
+    )
+    .with_result(2)
+    .with_results([3])
+}
+
+fn two_args() -> Vec<CallArg> {
+    vec![
+        CallArg::Scalar(ScalarExpr::Const(2.0)),
+        CallArg::Scalar(ScalarExpr::Const(3.0)),
+    ]
+}
+
+#[test]
+fn a_tuple_call_unpacks_a_struct_result_and_compiles() {
+    let m = Module::new(vec![
+        entry(vec![
+            Stmt::Call {
+                callee: 1,
+                args: two_args(),
+                result: Some(2),
+            },
+            Stmt::CallTuple {
+                callee: 1,
+                args: two_args(),
+                results: vec![0, 1],
+            },
+            Stmt::Store {
+                place: out(tid()),
+                value: ScalarExpr::Add(
+                    Box::new(ScalarExpr::Add(Box::new(l(0)), Box::new(l(1)))),
+                    Box::new(l(2)),
+                ),
+            },
+        ]),
+        pair_helper(),
+    ]);
+    let g = Slang.lower_module(&m, 0).expect("lowers");
+    assert!(g.source.contains("struct R1"), "{}", g.source);
+    assert!(
+        g.source.contains(".v0") && g.source.contains(".v1"),
+        "{}",
+        g.source
+    );
+    slangc_compiles(&g.source, &g.name);
+}
+
+#[test]
+fn a_tuple_call_with_the_wrong_number_of_results_is_refused_by_the_checker() {
+    let m = Module::new(vec![
+        entry(vec![
+            Stmt::CallTuple {
+                callee: 1,
+                args: two_args(),
+                results: vec![0, 1, 2],
+            },
+            store_local0(),
+        ]),
+        pair_helper(),
+    ]);
+    assert!(
+        matches!(
+            Slang.lower_module(&m, 0),
+            Err(LowerError::UnsupportedKernel { .. })
+        ),
+        "a mismatched results list must be a typed decline"
+    );
 }

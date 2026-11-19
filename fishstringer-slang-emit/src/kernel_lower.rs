@@ -303,6 +303,8 @@ struct Cx {
 /// extern's name and reference function.
 struct ModInfo {
     fns: Vec<(String, bool)>,
+    /// Per function, how many values a `CallTuple` receives after the first (the callee's `results`).
+    extra: Vec<usize>,
     externs: Vec<(String, Option<u32>)>,
 }
 
@@ -513,17 +515,26 @@ fn stmts(
             },
             // Calls (E16). Scalar arguments by value only; a callee is a Slang function `f<index>`. An `ExternCall` with a
             // `reference` kernel emits a call of the reference body (its semantics are the declaration's by construction).
-            Stmt::Call {
-                callee,
-                args,
-                result,
-            } => {
+            Stmt::Call { .. } | Stmt::CallTuple { .. } => {
+                let (callee, args, results): (&u32, &Vec<CallArg>, Vec<u32>) = match st {
+                    Stmt::Call {
+                        callee,
+                        args,
+                        result,
+                    } => (callee, args, result.iter().copied().collect()),
+                    Stmt::CallTuple {
+                        callee,
+                        args,
+                        results,
+                    } => (callee, args, results.clone()),
+                    _ => unreachable!(),
+                };
                 let mi = cx
                     .module
                     .clone()
                     .ok_or_else(|| no(kernel, "Call outside a module"))?;
                 let mut a = Vec::new();
-                for x in args {
+                for x in args.iter() {
                     match x {
                         CallArg::Scalar(e) => a.push(spell(kernel, e)?),
                         // A buffer is passed by alias: the binding, then its strides and base (the callee's parameters).
@@ -552,12 +563,28 @@ fn stmts(
                     .get(*callee as usize)
                     .ok_or_else(|| no(kernel, "Call: an unknown callee"))?;
                 let call = format!("{name}({})", a.join(", "));
-                match result {
-                    Some(r) => {
+                let extra = mi.extra[*callee as usize];
+                if results.len() > 1 && results.len() != extra + 1 {
+                    return Err(no(kernel, "CallTuple: results do not match the callee"));
+                }
+                match results.as_slice() {
+                    [] => out.push_str(&format!("{p}{call};\n")),
+                    [r] if extra == 0 => {
                         cx.declared.insert(*r);
                         out.push_str(&format!("{p}l{r} = {call};\n"));
                     }
-                    None => out.push_str(&format!("{p}{call};\n")),
+                    [r] => {
+                        cx.declared.insert(*r);
+                        out.push_str(&format!("{p}l{r} = {call}.v0;\n"));
+                    }
+                    rs => {
+                        let t = format!("t{}", out.len());
+                        out.push_str(&format!("{p}R{callee} {t} = {call};\n"));
+                        for (i, r) in rs.iter().enumerate() {
+                            cx.declared.insert(*r);
+                            out.push_str(&format!("{p}l{r} = {t}.v{i};\n"));
+                        }
+                    }
                 }
             }
             Stmt::ExternCall {
@@ -598,7 +625,6 @@ fn stmts(
                     None => out.push_str(&format!("{p}{call};\n")),
                 }
             }
-            Stmt::CallTuple { .. } => return Err(no(kernel, "CallTuple")),
             _ => return Err(no(kernel, "this statement")),
         }
     }
@@ -925,6 +951,7 @@ pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, Lo
             .enumerate()
             .map(|(i, f)| (format!("f{i}"), f.result.is_some()))
             .collect(),
+        extra: m.fns.iter().map(|f| f.results.len()).collect(),
         externs: m
             .externs
             .iter()
@@ -958,8 +985,8 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
     if k.launch.is_some() || !k.allocs.is_empty() {
         return Err(no(k, "a callee with a launch or an allocation"));
     }
-    if !k.results.is_empty() {
-        return Err(no(k, "a callee with a tuple result"));
+    if !k.results.is_empty() && k.result.is_none() {
+        return Err(no(k, "a callee with tuple results but no first result"));
     }
     let mut params = Vec::new();
     let mut prologue = String::new();
@@ -1000,13 +1027,29 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
     {
         return Err(no(k, "a callee with a 16-bit float local"));
     }
+    // A function returning several values returns a struct `R<f>` of fields `v0, v1, ...` (the first is `result`).
+    let mut tuple_def = String::new();
+    let mut ret_expr = k.result.map(|r| format!("l{r}"));
     let ret_ty = match k.result {
-        Some(r) => local_ty(k, r)?,
-        None => "void",
+        Some(r) if !k.results.is_empty() => {
+            let all: Vec<u32> = std::iter::once(r)
+                .chain(k.results.iter().copied())
+                .collect();
+            tuple_def.push_str(&format!("struct R{f}\n{{\n"));
+            for (i, l) in all.iter().enumerate() {
+                tuple_def.push_str(&format!("    {} v{i};\n", local_ty(k, *l)?));
+            }
+            tuple_def.push_str("};\n");
+            let vals: Vec<String> = all.iter().map(|l| format!("l{l}")).collect();
+            ret_expr = Some(format!("R{f}({})", vals.join(", ")));
+            format!("R{f}")
+        }
+        Some(r) => local_ty(k, r)?.to_string(),
+        None => "void".to_string(),
     };
     let mut cx = Cx {
         module: Some(mi.clone()),
-        ret: k.result.map(|r| format!("l{r}")),
+        ret: ret_expr,
         ..Cx::default()
     };
     let mut body = String::new();
@@ -1014,7 +1057,8 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
     if ["tid_", "bid_", "gi_"].iter().any(|n| body.contains(n)) {
         return Err(no(k, "a callee that reads a launch id"));
     }
-    let mut s = format!("{ret_ty} f{f}({})\n{{\n", params.join(", "));
+    let mut s = tuple_def;
+    s.push_str(&format!("{ret_ty} f{f}({})\n{{\n", params.join(", ")));
     s.push_str(&prologue);
     for l in &cx.declared {
         let ty = local_ty(k, *l)?;
