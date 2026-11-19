@@ -64,8 +64,8 @@ use unpopped::exec::{ExecId, Extent, MemorySpace, Scope};
 
 use unpopped::ir::{BinaryOp, RoundMode, Saturation, ScalarExpr};
 use unpopped::kernel::{
-    AtomicOp, Block, BufferRole, CallArg, KernelFn, Module, ParamKind, Place, Stmt, check_kernel,
-    check_module,
+    AtomicOp, Block, BodyText, BufferRole, CallArg, KernelFn, Module, ParamKind, Place, Stmt,
+    check_kernel, check_module,
 };
 use unpopped::kernel_interface::{Binding, KernelInterface, ParamsBlock, ParamsBlockField};
 use unpopped_vocab::ElementKind;
@@ -306,6 +306,8 @@ struct ModInfo {
     /// Per function, how many values a `CallTuple` receives after the first (the callee's `results`).
     extra: Vec<usize>,
     externs: Vec<(String, Option<u32>)>,
+    /// Per extern, whether it has a `"slang"` `Asm` body and no reference: a function `e<decl>` carries it.
+    asm: Vec<bool>,
 }
 
 fn pad(ind: usize) -> String {
@@ -600,6 +602,24 @@ fn stmts(
                     .externs
                     .get(*decl as usize)
                     .ok_or_else(|| no(kernel, "ExternCall: an unknown declaration"))?;
+                if reference.is_none() && mi.asm[*decl as usize] {
+                    if results.len() > 1 {
+                        return Err(no(kernel, "ExternCall with several results"));
+                    }
+                    let mut a = Vec::new();
+                    for x in args {
+                        a.push(spell(kernel, x)?);
+                    }
+                    let call = format!("e{decl}({})", a.join(", "));
+                    match results.first() {
+                        Some(r) => {
+                            cx.declared.insert(*r);
+                            out.push_str(&format!("{p}l{r} = {call};\n"));
+                        }
+                        None => out.push_str(&format!("{p}{call};\n")),
+                    }
+                    continue;
+                };
                 let Some(fi) = reference else {
                     return Err(LowerError::UnsupportedKernel {
                         detail: format!(
@@ -915,6 +935,82 @@ fn callees(m: &Module, b: &Block, out: &mut Vec<u32>) {
     }
 }
 
+/// Every extern `b` calls directly.
+fn extern_uses(b: &Block, out: &mut Vec<u32>) {
+    for st in &b.0 {
+        match st {
+            Stmt::ExternCall { decl, .. } => out.push(*decl),
+            Stmt::If { then, els, .. } => {
+                extern_uses(then, out);
+                extern_uses(els, out);
+            }
+            Stmt::For { body, .. } | Stmt::While { body, .. } => extern_uses(body, out),
+            _ => {}
+        }
+    }
+}
+
+/// The template of an extern's `"slang"`-keyed `Asm` body, when it has no `reference` (a reference is emitted instead).
+fn slang_asm(d: &unpopped::kernel::ExternDecl) -> Option<&str> {
+    if d.reference.is_some() || d.results.len() > 1 {
+        return None;
+    }
+    d.bodies.iter().find_map(|b| match (&*b.target, &b.body) {
+        ("slang", BodyText::Asm { template, .. }) => Some(template.as_str()),
+        _ => None,
+    })
+}
+
+/// An extern's `spirv_asm` body as a Slang function `e<decl>`. The template's operands `{i}` are the parameters, then the
+/// result (`$p<i>`, and `result`); the template is otherwise the author's SPIR-V assembly, passed through.
+fn lower_extern_asm(
+    k: &KernelFn,
+    d: &unpopped::kernel::ExternDecl,
+    decl: u32,
+    template: &str,
+) -> Result<String, LowerError> {
+    let np = d.params.len();
+    let mut body = String::new();
+    let mut rest = template;
+    while let Some(i) = rest.find('{') {
+        body.push_str(&rest[..i]);
+        let tail = &rest[i + 1..];
+        let Some(j) = tail.find('}') else {
+            return Err(no(k, "an extern asm template with an unclosed operand"));
+        };
+        let Ok(n) = tail[..j].trim().parse::<usize>() else {
+            return Err(no(k, "an extern asm template with a non-numeric operand"));
+        };
+        if n < np {
+            body.push_str(&format!("$p{n}"));
+        } else if n == np && d.results.len() == 1 {
+            body.push_str("result");
+        } else {
+            return Err(no(k, "an extern asm template operand out of range"));
+        }
+        rest = &tail[j + 1..];
+    }
+    body.push_str(rest);
+    let mut ps = Vec::new();
+    for (i, t) in d.params.iter().enumerate() {
+        ps.push(format!("{} p{i}", ctype(k, *t)?));
+    }
+    let sig_ret = match d.results.first() {
+        Some(t) => ctype(k, *t)?,
+        None => "void",
+    };
+    let asm = format!("spirv_asm {{ {} }}", body.trim());
+    let stmt = if d.results.is_empty() {
+        format!("    {asm};\n")
+    } else {
+        format!("    return {asm};\n")
+    };
+    Ok(format!(
+        "{sig_ret} e{decl}({})\n{{\n{stmt}}}\n",
+        ps.join(", ")
+    ))
+}
+
 /// Lower the module's `entry` kernel with every function it reaches as a Slang function ahead of it (E16). The checker
 /// resolves the calls (no cycle, valid callees) first; the callees come out callee-first.
 pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, LowerError> {
@@ -957,8 +1053,21 @@ pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, Lo
             .iter()
             .map(|d| (d.name.clone(), d.reference))
             .collect(),
+        asm: m.externs.iter().map(|d| slang_asm(d).is_some()).collect(),
     });
     let mut prelude = String::new();
+    let mut uses = Vec::new();
+    for f in &order {
+        extern_uses(&m.fns[*f as usize].body, &mut uses);
+    }
+    uses.sort_unstable();
+    uses.dedup();
+    for u in uses {
+        let d = &m.externs[u as usize];
+        if let Some(t) = slang_asm(d) {
+            prelude.push_str(&lower_extern_asm(&m.fns[entry as usize], d, u, t)?);
+        }
+    }
     for f in order {
         let k = &m.fns[f as usize];
         if let Some(gap) = crate::gaps::first_gap(k) {

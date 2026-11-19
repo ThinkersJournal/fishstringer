@@ -1,0 +1,3 @@
+kind: `Slang::lower_module` emits an extern's `"slang"`-keyed `Asm` body as `spirv_asm` (E16, fourth slice)
+---
+An `ExternCall` whose declaration has no `reference` but a `TargetBody` keyed `"slang"` with `BodyText::Asm` now lowers to a Slang function `e<decl>` whose body is a `spirv_asm { ... }` block. The template's operands `{i}` map to the parameters (`$p<i>`) and then the single result (`result`); the rest of the template is the author's SPIR-V assembly, passed through. A reference still wins; `Symbol` bodies, an `Asm` keyed to another target (e.g. `cuda-ptx`) and several results stay named declines. slangc-compiled in tests, not device-run.

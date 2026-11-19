@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Row 17 / E16: `Slang::lower_module` lowers a module whose entry calls helper functions and externs. A scalar-argument
 //! `Call` with a result becomes a Slang function, and an `ExternCall` with a `reference` kernel emits the reference body.
-//! A buffer argument is passed by alias (binding, strides, base). A callee with several results returns a struct and a `CallTuple` unpacks it. An extern with no reference, an allocation argument and a launch-id read in a callee stay typed declines.
+//! An extern with no reference and a `"slang"`-keyed `Asm` body becomes a `spirv_asm` function. A buffer argument is passed by alias (binding, strides, base). A callee with several results returns a struct and a `CallTuple` unpacks it. An extern with no reference, an allocation argument and a launch-id read in a callee stay typed declines.
 
 use std::process::Command;
 
@@ -10,8 +10,8 @@ use unpopped::backend::LowerError;
 use unpopped::exec::{ExecId, LaunchShape};
 use unpopped::ir::{CastSpec, RoundMode, Saturation, ScalarExpr};
 use unpopped::kernel::{
-    Block, BufferRole, CallArg, Effects, ExternDecl, KernelFn, LocalDecl, Module, Param, Place,
-    Stmt,
+    Block, BodyText, BufferRole, CallArg, Effects, ExternDecl, KernelFn, LocalDecl, Module, Param,
+    Place, Stmt, TargetBody,
 };
 use unpopped_vocab::ElementKind;
 
@@ -376,4 +376,49 @@ fn a_tuple_call_with_the_wrong_number_of_results_is_refused_by_the_checker() {
         ),
         "a mismatched results list must be a typed decline"
     );
+}
+
+#[test]
+fn an_extern_with_a_slang_asm_body_becomes_a_spirv_asm_function_and_compiles() {
+    let mk = |target: &str, body: BodyText| {
+        let decl = ExternDecl::new("fadd", vec![F, F], vec![F], Effects::pure())
+            .with_body(TargetBody::new(target, body));
+        Module::new(vec![entry(vec![
+            Stmt::ExternCall {
+                decl: 0,
+                args: vec![ScalarExpr::Const(2.0), ScalarExpr::Const(3.0)],
+                results: vec![0],
+            },
+            store_local0(),
+        ])])
+        .with_externs(vec![decl])
+    };
+    let asm = |t: &str| BodyText::Asm {
+        template: t.into(),
+        constraints: String::new(),
+    };
+    let g = Slang
+        .lower_module(&mk("slang", asm("OpFAdd $$float {2} {0} {1}")), 0)
+        .expect("lowers");
+    assert!(
+        g.source
+            .contains("spirv_asm { OpFAdd $$float result $p0 $p1 }"),
+        "{}",
+        g.source
+    );
+    slangc_compiles(&g.source, &g.name);
+    // Controls: the same asm keyed to another target, and a symbol body, are the named decline.
+    for m in [
+        mk("cuda-ptx", asm("add.f32 {2}, {0}, {1};")),
+        mk(
+            "slang",
+            BodyText::Symbol {
+                library: "libm".into(),
+                symbol: "fadd".into(),
+            },
+        ),
+    ] {
+        let d = decline(&m);
+        assert!(d.contains("no Slang body for extern `fadd`"), "{d}");
+    }
 }
