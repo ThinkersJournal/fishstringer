@@ -308,6 +308,9 @@ struct ModInfo {
     externs: Vec<(String, Option<u32>)>,
     /// Per extern, whether it has a `"slang"` `Asm` body and no reference: a function `e<decl>` carries it.
     asm: Vec<bool>,
+    /// `(callee, parameter)` pairs that some call passes an allocation to: the callee takes that buffer as a generic
+    /// `IRWArray<T>` (a `groupshared` or local array is not a `RWStructuredBuffer`).
+    generic: BTreeSet<(u32, usize)>,
 }
 
 fn pad(ind: usize) -> String {
@@ -557,7 +560,22 @@ fn stmts(
                             }
                             a.push(format!("{pre}b{b}_base"));
                         }
-                        _ => return Err(no(kernel, "Call: an allocation argument")),
+                        // An allocation is one-dimensional (the checker holds the parameter to rank 1): the array, stride 1, base 0.
+                        CallArg::Alloc(al) => {
+                            let Some(d) = kernel.allocs.get(*al as usize) else {
+                                return Err(no(kernel, "Call: an unknown allocation"));
+                            };
+                            if ctype(kernel, d.elem)? != storage_ty(kernel, d.elem)? {
+                                return Err(no(
+                                    kernel,
+                                    "Call: an allocation whose storage type differs from its value type",
+                                ));
+                            }
+                            a.push(format!("a{al}"));
+                            a.push("1".to_string());
+                            a.push("0".to_string());
+                        }
+                        _ => return Err(no(kernel, "Call: this kind of argument")),
                     }
                 }
                 let (name, _) = mi
@@ -935,6 +953,27 @@ fn callees(m: &Module, b: &Block, out: &mut Vec<u32>) {
     }
 }
 
+/// Every `(callee, parameter position)` that a call in `b` passes an allocation to.
+fn alloc_args(b: &Block, out: &mut Vec<(u32, usize)>) {
+    for st in &b.0 {
+        match st {
+            Stmt::Call { callee, args, .. } | Stmt::CallTuple { callee, args, .. } => {
+                for (j, x) in args.iter().enumerate() {
+                    if matches!(x, CallArg::Alloc(_)) {
+                        out.push((*callee, j));
+                    }
+                }
+            }
+            Stmt::If { then, els, .. } => {
+                alloc_args(then, out);
+                alloc_args(els, out);
+            }
+            Stmt::For { body, .. } | Stmt::While { body, .. } => alloc_args(body, out),
+            _ => {}
+        }
+    }
+}
+
 /// Every extern `b` calls directly.
 fn extern_uses(b: &Block, out: &mut Vec<u32>) {
     for st in &b.0 {
@@ -1054,6 +1093,13 @@ pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, Lo
             .map(|d| (d.name.clone(), d.reference))
             .collect(),
         asm: m.externs.iter().map(|d| slang_asm(d).is_some()).collect(),
+        generic: {
+            let mut v = Vec::new();
+            for f in &order {
+                alloc_args(&m.fns[*f as usize].body, &mut v);
+            }
+            v.into_iter().collect()
+        },
     });
     let mut prelude = String::new();
     let mut uses = Vec::new();
@@ -1098,6 +1144,7 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
         return Err(no(k, "a callee with tuple results but no first result"));
     }
     let mut params = Vec::new();
+    let mut generics = Vec::new();
     let mut prologue = String::new();
     for (i, p) in k.params.iter().enumerate() {
         match &p.kind {
@@ -1121,7 +1168,12 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
                     BufferRole::Read => "StructuredBuffer",
                     _ => "RWStructuredBuffer",
                 };
-                params.push(format!("{qual}<{ty}> b{i}"));
+                if mi.generic.contains(&(f, i)) {
+                    generics.push(format!("B{i} : IRWArray<{ty}>"));
+                    params.push(format!("B{i} b{i}"));
+                } else {
+                    params.push(format!("{qual}<{ty}> b{i}"));
+                }
                 for d in 0..*rank {
                     params.push(format!("int64_t b{i}_stride{d}"));
                 }
@@ -1167,7 +1219,15 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
         return Err(no(k, "a callee that reads a launch id"));
     }
     let mut s = tuple_def;
-    s.push_str(&format!("{ret_ty} f{f}({})\n{{\n", params.join(", ")));
+    let gen_list = if generics.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", generics.join(", "))
+    };
+    s.push_str(&format!(
+        "{ret_ty} f{f}{gen_list}({})\n{{\n",
+        params.join(", ")
+    ));
     s.push_str(&prologue);
     for l in &cx.declared {
         let ty = local_ty(k, *l)?;

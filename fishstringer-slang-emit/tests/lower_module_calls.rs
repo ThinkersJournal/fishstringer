@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Row 17 / E16: `Slang::lower_module` lowers a module whose entry calls helper functions and externs. A scalar-argument
 //! `Call` with a result becomes a Slang function, and an `ExternCall` with a `reference` kernel emits the reference body.
-//! An extern with no reference and a `"slang"`-keyed `Asm` body becomes a `spirv_asm` function. A buffer argument is passed by alias (binding, strides, base). A callee with several results returns a struct and a `CallTuple` unpacks it. An extern with no reference, an allocation argument and a launch-id read in a callee stay typed declines.
+//! An extern with no reference and a `"slang"`-keyed `Asm` body becomes a `spirv_asm` function. A buffer argument is passed by alias (binding, strides, base); a `Shared` or `Private` allocation argument is passed as an array (stride 1, base 0) to a callee that takes that buffer as a generic `IRWArray<T>`. A callee with several results returns a struct and a `CallTuple` unpacks it. An extern with no reference, a Constant allocation and a launch-id read in a callee stay typed declines.
 
 use std::process::Command;
 
 use fishstringer_slang_emit::Slang;
 use unpopped::backend::LowerError;
-use unpopped::exec::{ExecId, LaunchShape};
+use unpopped::exec::{AllocDecl, ExecId, Extent, LaunchShape, MemorySpace};
 use unpopped::ir::{CastSpec, RoundMode, Saturation, ScalarExpr};
 use unpopped::kernel::{
     Block, BodyText, BufferRole, CallArg, Effects, ExternDecl, KernelFn, LocalDecl, Module, Param,
@@ -224,16 +224,73 @@ fn a_buffer_argument_is_passed_by_alias_with_its_strides_and_compiles() {
 }
 
 #[test]
-fn an_allocation_argument_is_a_named_decline() {
-    let m = Module::new(vec![
-        entry(vec![Stmt::Call {
+fn shared_and_private_allocations_are_passed_as_generic_arrays_and_compile() {
+    let mut e = entry(vec![
+        Stmt::Call {
             callee: 1,
             args: vec![CallArg::Alloc(0), CallArg::Scalar(tid())],
             result: None,
-        }]),
-        writer(BufferRole::ReadWrite),
+        },
+        Stmt::Call {
+            callee: 1,
+            args: vec![CallArg::Alloc(1), CallArg::Scalar(tid())],
+            result: None,
+        },
+        Stmt::Call {
+            callee: 1,
+            args: vec![CallArg::Buffer(0), CallArg::Scalar(tid())],
+            result: None,
+        },
     ]);
-    assert!(decline(&m).contains("allocation"), "{}", decline(&m));
+    e.allocs = vec![
+        AllocDecl::new("sh", MemorySpace::Shared, F, Extent::Static(4)),
+        AllocDecl::new("pv", MemorySpace::Private, F, Extent::Static(4)),
+    ];
+    let m = Module::new(vec![e, writer(BufferRole::ReadWrite)]);
+    let g = Slang.lower_module(&m, 0).expect("lowers");
+    // Arrays pass as (array, stride 1, base 0); the callee takes the buffer as a generic array so one body serves both.
+    for want in [
+        "IRWArray<float>",
+        "f1(a0, 1, 0,",
+        "f1(a1, 1, 0,",
+        "f1(b0, pb_.b0_stride0,",
+    ] {
+        assert!(
+            g.source.contains(want),
+            "missing `{want}`:
+{}",
+            g.source
+        );
+    }
+    slangc_compiles(&g.source, &g.name);
+}
+
+#[test]
+fn a_constant_allocation_argument_is_still_a_named_decline() {
+    let mut e = entry(vec![Stmt::Call {
+        callee: 1,
+        args: vec![CallArg::Alloc(0), CallArg::Scalar(tid())],
+        result: None,
+    }]);
+    e.allocs = vec![AllocDecl::new(
+        "k",
+        MemorySpace::Constant,
+        F,
+        Extent::Static(4),
+    )];
+    let reader = KernelFn::new(
+        "reader",
+        F,
+        vec![
+            Param::buffer("buf", F, BufferRole::Read, Some(1)),
+            Param::scalar("i", ElementKind::U32, 0),
+        ],
+        vec![LocalDecl::scalar(ElementKind::U32)],
+        Block(vec![]),
+    );
+    let m = Module::new(vec![e, reader]);
+    let d = decline(&m);
+    assert!(d.contains("Constant"), "{d}");
 }
 
 #[test]
