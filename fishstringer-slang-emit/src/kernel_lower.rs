@@ -526,7 +526,25 @@ fn stmts(
                 for x in args {
                     match x {
                         CallArg::Scalar(e) => a.push(spell(kernel, e)?),
-                        _ => return Err(no(kernel, "Call: a buffer or allocation argument")),
+                        // A buffer is passed by alias: the binding, then its strides and base (the callee's parameters).
+                        CallArg::Buffer(b) => {
+                            let Some(ParamKind::Buffer {
+                                rank: Some(rank), ..
+                            }) = kernel.params.get(*b as usize).map(|p| &p.kind)
+                            else {
+                                return Err(no(
+                                    kernel,
+                                    "Call: a buffer argument whose rank is not declared",
+                                ));
+                            };
+                            let pre = if kernel.launch.is_some() { "pb_." } else { "" };
+                            a.push(format!("b{b}"));
+                            for d in 0..*rank {
+                                a.push(format!("{pre}b{b}_stride{d}"));
+                            }
+                            a.push(format!("{pre}b{b}_base"));
+                        }
+                        _ => return Err(no(kernel, "Call: an allocation argument")),
                     }
                 }
                 let (name, _) = mi
@@ -635,10 +653,12 @@ fn place(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
     let Place::Logical { buffer, coords } = p else {
         return Err(no(kernel, "this place"));
     };
-    let mut off = format!("pb_.b{buffer}_base");
+    // The entry reads strides/base from the params block; a callee (no launch) takes them as function parameters.
+    let pre = if kernel.launch.is_some() { "pb_." } else { "" };
+    let mut off = format!("{pre}b{buffer}_base");
     for (d, c) in coords.iter().enumerate() {
         off.push_str(&format!(
-            " + (int64_t)({}) * pb_.b{buffer}_stride{d}",
+            " + (int64_t)({}) * {pre}b{buffer}_stride{d}",
             spell(kernel, c)?
         ));
     }
@@ -953,7 +973,25 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
                 params.push(format!("{t} p{i}"));
                 prologue.push_str(&format!("    {t} l{local} = p{i};\n"));
             }
-            _ => return Err(no(k, "a callee with a buffer parameter")),
+            ParamKind::Buffer { elem, role, rank } => {
+                let Some(rank) = rank else {
+                    return Err(no(k, "a callee with a buffer whose rank is not declared"));
+                };
+                if matches!(elem, ElementKind::F16 | ElementKind::Bf16) {
+                    return Err(no(k, "a callee with a 16-bit float buffer"));
+                }
+                let ty = storage_ty(k, *elem)?;
+                let qual = match role {
+                    BufferRole::Read => "StructuredBuffer",
+                    _ => "RWStructuredBuffer",
+                };
+                params.push(format!("{qual}<{ty}> b{i}"));
+                for d in 0..*rank {
+                    params.push(format!("int64_t b{i}_stride{d}"));
+                }
+                params.push(format!("int64_t b{i}_base"));
+            }
+            _ => return Err(no(k, "a callee with this kind of parameter")),
         }
     }
     if k.locals

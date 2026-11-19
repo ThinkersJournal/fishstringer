@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Row 17 / E16: `Slang::lower_module` lowers a module whose entry calls helper functions and externs. A scalar-argument
 //! `Call` with a result becomes a Slang function, and an `ExternCall` with a `reference` kernel emits the reference body.
-//! An extern with no reference, a buffer argument, a tuple call and a launch-id read in a callee stay typed declines.
+//! A buffer argument is passed by alias (binding, strides, base). An extern with no reference, an allocation argument, a tuple call and a launch-id read in a callee stay typed declines.
 
 use std::process::Command;
 
@@ -177,28 +177,63 @@ fn an_extern_with_no_reference_is_a_named_decline_and_the_control_lowers() {
     );
 }
 
-#[test]
-fn a_buffer_argument_and_a_tuple_call_are_named_declines() {
-    let mut callee = helper();
-    callee
-        .params
-        .push(Param::buffer("b", F, BufferRole::Read, Some(1)));
-    let m = Module::new(vec![
-        entry(vec![
-            Stmt::Call {
-                callee: 1,
-                args: vec![
-                    CallArg::Scalar(ScalarExpr::Const(2.0)),
-                    CallArg::Scalar(ScalarExpr::Const(3.0)),
-                    CallArg::Buffer(0),
-                ],
-                result: Some(0),
+/// `fn(buf, i) { buf[i] = 7 }`: a callee with a buffer parameter (rank 1) and an integer index, no result.
+fn writer(role: BufferRole) -> KernelFn {
+    KernelFn::new(
+        "writer",
+        F,
+        vec![
+            Param::buffer("buf", F, role, Some(1)),
+            Param::scalar("i", ElementKind::U32, 0),
+        ],
+        vec![LocalDecl::scalar(ElementKind::U32)],
+        Block(vec![Stmt::Store {
+            place: Place::Logical {
+                buffer: 0,
+                coords: vec![l(0)],
             },
-            store_local0(),
-        ]),
-        callee,
+            value: ScalarExpr::Const(7.0),
+        }]),
+    )
+}
+
+#[test]
+fn a_buffer_argument_is_passed_by_alias_with_its_strides_and_compiles() {
+    let m = Module::new(vec![
+        entry(vec![Stmt::Call {
+            callee: 1,
+            args: vec![CallArg::Buffer(0), CallArg::Scalar(tid())],
+            result: None,
+        }]),
+        writer(BufferRole::ReadWrite),
     ]);
-    assert!(decline(&m).contains("buffer"), "{}", decline(&m));
+    let g = Slang.lower_module(&m, 0).expect("lowers");
+    // The call passes the binding, its stride and its base; the callee reads them as parameters, not from `pb_`.
+    assert!(
+        g.source.contains("f1(b0, pb_.b0_stride0, pb_.b0_base,"),
+        "{}",
+        g.source
+    );
+    assert!(
+        g.source
+            .contains("RWStructuredBuffer<float> b0, int64_t b0_stride0, int64_t b0_base"),
+        "{}",
+        g.source
+    );
+    slangc_compiles(&g.source, &g.name);
+}
+
+#[test]
+fn an_allocation_argument_and_a_tuple_call_are_named_declines() {
+    let m = Module::new(vec![
+        entry(vec![Stmt::Call {
+            callee: 1,
+            args: vec![CallArg::Alloc(0), CallArg::Scalar(tid())],
+            result: None,
+        }]),
+        writer(BufferRole::ReadWrite),
+    ]);
+    assert!(decline(&m).contains("allocation"), "{}", decline(&m));
 
     let m = Module::new(vec![
         entry(vec![Stmt::CallTuple {
