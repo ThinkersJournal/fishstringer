@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.4.3 — `deny.toml` allows CDLA-Permissive-2.0 (the portfolio template carries it)
+
+Adds `CDLA-Permissive-2.0` (the webpki-roots data licence, allowed portfolio-wide) to the licence allow list of `deny.toml`, which stays `all-features = true` (PM ruling 2026-11-18). No crate of ours has it in its lockfile today (`webpki-roots` is absent from `Cargo.lock`), so this changes no check result; it keeps the template identical across the portfolio. Verified with `cargo deny check licenses`. No code change.
+
 ## 0.4.2 — tests pin the by-name refusal of `Collective` and `CollectiveTuple`, nested (no behaviour change)
 
 A test (`collective_and_collective_tuple_decline_by_name_including_nested`) refuses every kind it builds (`Reduce`, `Scan`, `Broadcast`) as a `Collective` and as a `CollectiveTuple`, at the top level and nested in `If`, `For` and `While` bodies up to depth three (36 placements, counted), each with the `slang target gap: collective statement ... PATENT_SWEEP` reason (board 434 C). Control: the same nesting around a `Break` is not a gap. Mutation controls, each run and each failing the test: dropping the `Collective` arm, dropping the `For`/`While` recursion in `gaps.rs`, dropping the `If` recursion. `Shuffle` and `Vote` kinds are not built here. No code change.
