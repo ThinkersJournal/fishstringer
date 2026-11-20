@@ -1,7 +1,0 @@
-kind: `Slang::lower_module` grows buffer arguments, `CallTuple`, extern `spirv_asm` bodies and allocation arguments (E16, slices 2-5)
----
-- **Buffer arguments.** A `Call` may pass the caller's buffer parameter (`CallArg::Buffer`) to a callee's buffer parameter. The Slang callee takes the binding and its strides and base as parameters (`RWStructuredBuffer<T> b<i>, int64_t b<i>_stride<d>…, int64_t b<i>_base`). The buffer's rank must be declared.
-- **`CallTuple`.** A callee with `KernelFn::results` returns a struct `R<index>` (fields `v0, v1, …`, the first being `result`); `Stmt::CallTuple` unpacks it, a plain `Call` takes `.v0`. A results list of the wrong length is a typed decline.
-- **Extern asm.** An `ExternCall` whose declaration has no `reference` but a `TargetBody` keyed `"slang"` with `BodyText::Asm` lowers to a Slang function `e<decl>` whose body is a `spirv_asm { … }` block (operands `{i}` become `$p<i>` and `result`). A reference still wins.
-- **Allocation arguments.** A `Call` may pass a `Shared` or `Private` allocation (`CallArg::Alloc`) to a rank-1 buffer parameter as (array, stride 1, base 0); a callee passed an allocation at any call site takes that buffer as a generic `IRWArray<T>`.
-- Still named declines: `Symbol` bodies, an `Asm` keyed to another target, `Constant` allocation arguments, several extern results, 16-bit float buffers in a callee. slangc-compiled in tests, not device-run.
