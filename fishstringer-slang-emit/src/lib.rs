@@ -304,8 +304,8 @@ pub fn required_slangc_args(dtype: ElementKind) -> &'static [&'static str] {
 
 impl Slang {
     /// Lower the module's `entry` kernel with every function it calls (E16): a `Call` with scalar arguments becomes a Slang
-    /// function `f<index>`, and an `ExternCall` with a `reference` kernel emits that reference body. An extern with no
-    /// reference, a buffer or allocation argument, `CallTuple`, and a callee that reads a launch id are typed declines
+    /// function `f<index>` (a callee with several results returns a struct `R<index>` that `CallTuple` unpacks), and an `ExternCall` with a `reference` kernel emits that reference body; with no reference, a `"slang"`-keyed `Asm` body becomes a `spirv_asm` function. An extern with
+    /// neither (a `Symbol` body, or an `Asm` keyed to another target), a `Constant` allocation argument, and a callee that reads a launch id are typed declines
     /// (`UnsupportedKernel`, reasons starting `slang: `). The module goes through `check_module` first.
     ///
     /// # Errors

@@ -64,8 +64,8 @@ use unpopped::exec::{ExecId, Extent, MemorySpace, Scope};
 
 use unpopped::ir::{BinaryOp, RoundMode, Saturation, ScalarExpr};
 use unpopped::kernel::{
-    AtomicOp, Block, BufferRole, CallArg, KernelFn, Module, ParamKind, Place, Stmt, check_kernel,
-    check_module,
+    AtomicOp, Block, BodyText, BufferRole, CallArg, KernelFn, Module, ParamKind, Place, Stmt,
+    check_kernel, check_module,
 };
 use unpopped::kernel_interface::{Binding, KernelInterface, ParamsBlock, ParamsBlockField};
 use unpopped_vocab::ElementKind;
@@ -303,7 +303,14 @@ struct Cx {
 /// extern's name and reference function.
 struct ModInfo {
     fns: Vec<(String, bool)>,
+    /// Per function, how many values a `CallTuple` receives after the first (the callee's `results`).
+    extra: Vec<usize>,
     externs: Vec<(String, Option<u32>)>,
+    /// Per extern, whether it has a `"slang"` `Asm` body and no reference: a function `e<decl>` carries it.
+    asm: Vec<bool>,
+    /// `(callee, parameter)` pairs that some call passes an allocation to: the callee takes that buffer as a generic
+    /// `IRWArray<T>` (a `groupshared` or local array is not a `RWStructuredBuffer`).
+    generic: BTreeSet<(u32, usize)>,
 }
 
 fn pad(ind: usize) -> String {
@@ -513,20 +520,62 @@ fn stmts(
             },
             // Calls (E16). Scalar arguments by value only; a callee is a Slang function `f<index>`. An `ExternCall` with a
             // `reference` kernel emits a call of the reference body (its semantics are the declaration's by construction).
-            Stmt::Call {
-                callee,
-                args,
-                result,
-            } => {
+            Stmt::Call { .. } | Stmt::CallTuple { .. } => {
+                let (callee, args, results): (&u32, &Vec<CallArg>, Vec<u32>) = match st {
+                    Stmt::Call {
+                        callee,
+                        args,
+                        result,
+                    } => (callee, args, result.iter().copied().collect()),
+                    Stmt::CallTuple {
+                        callee,
+                        args,
+                        results,
+                    } => (callee, args, results.clone()),
+                    _ => unreachable!(),
+                };
                 let mi = cx
                     .module
                     .clone()
                     .ok_or_else(|| no(kernel, "Call outside a module"))?;
                 let mut a = Vec::new();
-                for x in args {
+                for x in args.iter() {
                     match x {
                         CallArg::Scalar(e) => a.push(spell(kernel, e)?),
-                        _ => return Err(no(kernel, "Call: a buffer or allocation argument")),
+                        // A buffer is passed by alias: the binding, then its strides and base (the callee's parameters).
+                        CallArg::Buffer(b) => {
+                            let Some(ParamKind::Buffer {
+                                rank: Some(rank), ..
+                            }) = kernel.params.get(*b as usize).map(|p| &p.kind)
+                            else {
+                                return Err(no(
+                                    kernel,
+                                    "Call: a buffer argument whose rank is not declared",
+                                ));
+                            };
+                            let pre = if kernel.launch.is_some() { "pb_." } else { "" };
+                            a.push(format!("b{b}"));
+                            for d in 0..*rank {
+                                a.push(format!("{pre}b{b}_stride{d}"));
+                            }
+                            a.push(format!("{pre}b{b}_base"));
+                        }
+                        // An allocation is one-dimensional (the checker holds the parameter to rank 1): the array, stride 1, base 0.
+                        CallArg::Alloc(al) => {
+                            let Some(d) = kernel.allocs.get(*al as usize) else {
+                                return Err(no(kernel, "Call: an unknown allocation"));
+                            };
+                            if ctype(kernel, d.elem)? != storage_ty(kernel, d.elem)? {
+                                return Err(no(
+                                    kernel,
+                                    "Call: an allocation whose storage type differs from its value type",
+                                ));
+                            }
+                            a.push(format!("a{al}"));
+                            a.push("1".to_string());
+                            a.push("0".to_string());
+                        }
+                        _ => return Err(no(kernel, "Call: this kind of argument")),
                     }
                 }
                 let (name, _) = mi
@@ -534,12 +583,28 @@ fn stmts(
                     .get(*callee as usize)
                     .ok_or_else(|| no(kernel, "Call: an unknown callee"))?;
                 let call = format!("{name}({})", a.join(", "));
-                match result {
-                    Some(r) => {
+                let extra = mi.extra[*callee as usize];
+                if results.len() > 1 && results.len() != extra + 1 {
+                    return Err(no(kernel, "CallTuple: results do not match the callee"));
+                }
+                match results.as_slice() {
+                    [] => out.push_str(&format!("{p}{call};\n")),
+                    [r] if extra == 0 => {
                         cx.declared.insert(*r);
                         out.push_str(&format!("{p}l{r} = {call};\n"));
                     }
-                    None => out.push_str(&format!("{p}{call};\n")),
+                    [r] => {
+                        cx.declared.insert(*r);
+                        out.push_str(&format!("{p}l{r} = {call}.v0;\n"));
+                    }
+                    rs => {
+                        let t = format!("t{}", out.len());
+                        out.push_str(&format!("{p}R{callee} {t} = {call};\n"));
+                        for (i, r) in rs.iter().enumerate() {
+                            cx.declared.insert(*r);
+                            out.push_str(&format!("{p}l{r} = {t}.v{i};\n"));
+                        }
+                    }
                 }
             }
             Stmt::ExternCall {
@@ -555,6 +620,24 @@ fn stmts(
                     .externs
                     .get(*decl as usize)
                     .ok_or_else(|| no(kernel, "ExternCall: an unknown declaration"))?;
+                if reference.is_none() && mi.asm[*decl as usize] {
+                    if results.len() > 1 {
+                        return Err(no(kernel, "ExternCall with several results"));
+                    }
+                    let mut a = Vec::new();
+                    for x in args {
+                        a.push(spell(kernel, x)?);
+                    }
+                    let call = format!("e{decl}({})", a.join(", "));
+                    match results.first() {
+                        Some(r) => {
+                            cx.declared.insert(*r);
+                            out.push_str(&format!("{p}l{r} = {call};\n"));
+                        }
+                        None => out.push_str(&format!("{p}{call};\n")),
+                    }
+                    continue;
+                };
                 let Some(fi) = reference else {
                     return Err(LowerError::UnsupportedKernel {
                         detail: format!(
@@ -580,7 +663,6 @@ fn stmts(
                     None => out.push_str(&format!("{p}{call};\n")),
                 }
             }
-            Stmt::CallTuple { .. } => return Err(no(kernel, "CallTuple")),
             _ => return Err(no(kernel, "this statement")),
         }
     }
@@ -635,10 +717,12 @@ fn place(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
     let Place::Logical { buffer, coords } = p else {
         return Err(no(kernel, "this place"));
     };
-    let mut off = format!("pb_.b{buffer}_base");
+    // The entry reads strides/base from the params block; a callee (no launch) takes them as function parameters.
+    let pre = if kernel.launch.is_some() { "pb_." } else { "" };
+    let mut off = format!("{pre}b{buffer}_base");
     for (d, c) in coords.iter().enumerate() {
         off.push_str(&format!(
-            " + (int64_t)({}) * pb_.b{buffer}_stride{d}",
+            " + (int64_t)({}) * {pre}b{buffer}_stride{d}",
             spell(kernel, c)?
         ));
     }
@@ -869,6 +953,103 @@ fn callees(m: &Module, b: &Block, out: &mut Vec<u32>) {
     }
 }
 
+/// Every `(callee, parameter position)` that a call in `b` passes an allocation to.
+fn alloc_args(b: &Block, out: &mut Vec<(u32, usize)>) {
+    for st in &b.0 {
+        match st {
+            Stmt::Call { callee, args, .. } | Stmt::CallTuple { callee, args, .. } => {
+                for (j, x) in args.iter().enumerate() {
+                    if matches!(x, CallArg::Alloc(_)) {
+                        out.push((*callee, j));
+                    }
+                }
+            }
+            Stmt::If { then, els, .. } => {
+                alloc_args(then, out);
+                alloc_args(els, out);
+            }
+            Stmt::For { body, .. } | Stmt::While { body, .. } => alloc_args(body, out),
+            _ => {}
+        }
+    }
+}
+
+/// Every extern `b` calls directly.
+fn extern_uses(b: &Block, out: &mut Vec<u32>) {
+    for st in &b.0 {
+        match st {
+            Stmt::ExternCall { decl, .. } => out.push(*decl),
+            Stmt::If { then, els, .. } => {
+                extern_uses(then, out);
+                extern_uses(els, out);
+            }
+            Stmt::For { body, .. } | Stmt::While { body, .. } => extern_uses(body, out),
+            _ => {}
+        }
+    }
+}
+
+/// The template of an extern's `"slang"`-keyed `Asm` body, when it has no `reference` (a reference is emitted instead).
+fn slang_asm(d: &unpopped::kernel::ExternDecl) -> Option<&str> {
+    if d.reference.is_some() || d.results.len() > 1 {
+        return None;
+    }
+    d.bodies.iter().find_map(|b| match (&*b.target, &b.body) {
+        ("slang", BodyText::Asm { template, .. }) => Some(template.as_str()),
+        _ => None,
+    })
+}
+
+/// An extern's `spirv_asm` body as a Slang function `e<decl>`. The template's operands `{i}` are the parameters, then the
+/// result (`$p<i>`, and `result`); the template is otherwise the author's SPIR-V assembly, passed through.
+fn lower_extern_asm(
+    k: &KernelFn,
+    d: &unpopped::kernel::ExternDecl,
+    decl: u32,
+    template: &str,
+) -> Result<String, LowerError> {
+    let np = d.params.len();
+    let mut body = String::new();
+    let mut rest = template;
+    while let Some(i) = rest.find('{') {
+        body.push_str(&rest[..i]);
+        let tail = &rest[i + 1..];
+        let Some(j) = tail.find('}') else {
+            return Err(no(k, "an extern asm template with an unclosed operand"));
+        };
+        let Ok(n) = tail[..j].trim().parse::<usize>() else {
+            return Err(no(k, "an extern asm template with a non-numeric operand"));
+        };
+        if n < np {
+            body.push_str(&format!("$p{n}"));
+        } else if n == np && d.results.len() == 1 {
+            body.push_str("result");
+        } else {
+            return Err(no(k, "an extern asm template operand out of range"));
+        }
+        rest = &tail[j + 1..];
+    }
+    body.push_str(rest);
+    let mut ps = Vec::new();
+    for (i, t) in d.params.iter().enumerate() {
+        ps.push(format!("{} p{i}", ctype(k, *t)?));
+    }
+    let sig_ret = match d.results.first() {
+        Some(t) => ctype(k, *t)?,
+        None => "void",
+    };
+    let asm = format!("spirv_asm {{ {} }}", body.trim());
+    let stmt = if d.results.is_empty() {
+        format!("    {asm};\n")
+    } else {
+        format!("    return {asm};\n")
+    };
+    Ok(format!(
+        "{sig_ret} e{decl}({})\n{{\n{stmt}}}\n",
+        ps.join(", ")
+    ))
+}
+
 /// Lower the module's `entry` kernel with every function it reaches as a Slang function ahead of it (E16). The checker
 /// resolves the calls (no cycle, valid callees) first; the callees come out callee-first.
 pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, LowerError> {
@@ -905,13 +1086,34 @@ pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, Lo
             .enumerate()
             .map(|(i, f)| (format!("f{i}"), f.result.is_some()))
             .collect(),
+        extra: m.fns.iter().map(|f| f.results.len()).collect(),
         externs: m
             .externs
             .iter()
             .map(|d| (d.name.clone(), d.reference))
             .collect(),
+        asm: m.externs.iter().map(|d| slang_asm(d).is_some()).collect(),
+        generic: {
+            let mut v = Vec::new();
+            for f in &order {
+                alloc_args(&m.fns[*f as usize].body, &mut v);
+            }
+            v.into_iter().collect()
+        },
     });
     let mut prelude = String::new();
+    let mut uses = Vec::new();
+    for f in &order {
+        extern_uses(&m.fns[*f as usize].body, &mut uses);
+    }
+    uses.sort_unstable();
+    uses.dedup();
+    for u in uses {
+        let d = &m.externs[u as usize];
+        if let Some(t) = slang_asm(d) {
+            prelude.push_str(&lower_extern_asm(&m.fns[entry as usize], d, u, t)?);
+        }
+    }
     for f in order {
         let k = &m.fns[f as usize];
         if let Some(gap) = crate::gaps::first_gap(k) {
@@ -938,10 +1140,11 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
     if k.launch.is_some() || !k.allocs.is_empty() {
         return Err(no(k, "a callee with a launch or an allocation"));
     }
-    if !k.results.is_empty() {
-        return Err(no(k, "a callee with a tuple result"));
+    if !k.results.is_empty() && k.result.is_none() {
+        return Err(no(k, "a callee with tuple results but no first result"));
     }
     let mut params = Vec::new();
+    let mut generics = Vec::new();
     let mut prologue = String::new();
     for (i, p) in k.params.iter().enumerate() {
         match &p.kind {
@@ -953,7 +1156,30 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
                 params.push(format!("{t} p{i}"));
                 prologue.push_str(&format!("    {t} l{local} = p{i};\n"));
             }
-            _ => return Err(no(k, "a callee with a buffer parameter")),
+            ParamKind::Buffer { elem, role, rank } => {
+                let Some(rank) = rank else {
+                    return Err(no(k, "a callee with a buffer whose rank is not declared"));
+                };
+                if matches!(elem, ElementKind::F16 | ElementKind::Bf16) {
+                    return Err(no(k, "a callee with a 16-bit float buffer"));
+                }
+                let ty = storage_ty(k, *elem)?;
+                let qual = match role {
+                    BufferRole::Read => "StructuredBuffer",
+                    _ => "RWStructuredBuffer",
+                };
+                if mi.generic.contains(&(f, i)) {
+                    generics.push(format!("B{i} : IRWArray<{ty}>"));
+                    params.push(format!("B{i} b{i}"));
+                } else {
+                    params.push(format!("{qual}<{ty}> b{i}"));
+                }
+                for d in 0..*rank {
+                    params.push(format!("int64_t b{i}_stride{d}"));
+                }
+                params.push(format!("int64_t b{i}_base"));
+            }
+            _ => return Err(no(k, "a callee with this kind of parameter")),
         }
     }
     if k.locals
@@ -962,13 +1188,29 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
     {
         return Err(no(k, "a callee with a 16-bit float local"));
     }
+    // A function returning several values returns a struct `R<f>` of fields `v0, v1, ...` (the first is `result`).
+    let mut tuple_def = String::new();
+    let mut ret_expr = k.result.map(|r| format!("l{r}"));
     let ret_ty = match k.result {
-        Some(r) => local_ty(k, r)?,
-        None => "void",
+        Some(r) if !k.results.is_empty() => {
+            let all: Vec<u32> = std::iter::once(r)
+                .chain(k.results.iter().copied())
+                .collect();
+            tuple_def.push_str(&format!("struct R{f}\n{{\n"));
+            for (i, l) in all.iter().enumerate() {
+                tuple_def.push_str(&format!("    {} v{i};\n", local_ty(k, *l)?));
+            }
+            tuple_def.push_str("};\n");
+            let vals: Vec<String> = all.iter().map(|l| format!("l{l}")).collect();
+            ret_expr = Some(format!("R{f}({})", vals.join(", ")));
+            format!("R{f}")
+        }
+        Some(r) => local_ty(k, r)?.to_string(),
+        None => "void".to_string(),
     };
     let mut cx = Cx {
         module: Some(mi.clone()),
-        ret: k.result.map(|r| format!("l{r}")),
+        ret: ret_expr,
         ..Cx::default()
     };
     let mut body = String::new();
@@ -976,7 +1218,16 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
     if ["tid_", "bid_", "gi_"].iter().any(|n| body.contains(n)) {
         return Err(no(k, "a callee that reads a launch id"));
     }
-    let mut s = format!("{ret_ty} f{f}({})\n{{\n", params.join(", "));
+    let mut s = tuple_def;
+    let gen_list = if generics.is_empty() {
+        String::new()
+    } else {
+        format!("<{}>", generics.join(", "))
+    };
+    s.push_str(&format!(
+        "{ret_ty} f{f}{gen_list}({})\n{{\n",
+        params.join(", ")
+    ));
     s.push_str(&prologue);
     for l in &cx.declared {
         let ty = local_ty(k, *l)?;

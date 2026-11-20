@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Row 17 / E16: `Slang::lower_module` lowers a module whose entry calls helper functions and externs. A scalar-argument
 //! `Call` with a result becomes a Slang function, and an `ExternCall` with a `reference` kernel emits the reference body.
-//! An extern with no reference, a buffer argument, a tuple call and a launch-id read in a callee stay typed declines.
+//! An extern with no reference and a `"slang"`-keyed `Asm` body becomes a `spirv_asm` function. A buffer argument is passed by alias (binding, strides, base); a `Shared` or `Private` allocation argument is passed as an array (stride 1, base 0) to a callee that takes that buffer as a generic `IRWArray<T>`. A callee with several results returns a struct and a `CallTuple` unpacks it. An extern with no reference, a Constant allocation and a launch-id read in a callee stay typed declines.
 
 use std::process::Command;
 
 use fishstringer_slang_emit::Slang;
 use unpopped::backend::LowerError;
-use unpopped::exec::{ExecId, LaunchShape};
+use unpopped::exec::{AllocDecl, ExecId, Extent, LaunchShape, MemorySpace};
 use unpopped::ir::{CastSpec, RoundMode, Saturation, ScalarExpr};
 use unpopped::kernel::{
-    Block, BufferRole, CallArg, Effects, ExternDecl, KernelFn, LocalDecl, Module, Param, Place,
-    Stmt,
+    Block, BodyText, BufferRole, CallArg, Effects, ExternDecl, KernelFn, LocalDecl, Module, Param,
+    Place, Stmt, TargetBody,
 };
 use unpopped_vocab::ElementKind;
 
@@ -177,41 +177,120 @@ fn an_extern_with_no_reference_is_a_named_decline_and_the_control_lowers() {
     );
 }
 
-#[test]
-fn a_buffer_argument_and_a_tuple_call_are_named_declines() {
-    let mut callee = helper();
-    callee
-        .params
-        .push(Param::buffer("b", F, BufferRole::Read, Some(1)));
-    let m = Module::new(vec![
-        entry(vec![
-            Stmt::Call {
-                callee: 1,
-                args: vec![
-                    CallArg::Scalar(ScalarExpr::Const(2.0)),
-                    CallArg::Scalar(ScalarExpr::Const(3.0)),
-                    CallArg::Buffer(0),
-                ],
-                result: Some(0),
+/// `fn(buf, i) { buf[i] = 7 }`: a callee with a buffer parameter (rank 1) and an integer index, no result.
+fn writer(role: BufferRole) -> KernelFn {
+    KernelFn::new(
+        "writer",
+        F,
+        vec![
+            Param::buffer("buf", F, role, Some(1)),
+            Param::scalar("i", ElementKind::U32, 0),
+        ],
+        vec![LocalDecl::scalar(ElementKind::U32)],
+        Block(vec![Stmt::Store {
+            place: Place::Logical {
+                buffer: 0,
+                coords: vec![l(0)],
             },
-            store_local0(),
-        ]),
-        callee,
-    ]);
-    assert!(decline(&m).contains("buffer"), "{}", decline(&m));
-
-    let m = Module::new(vec![
-        entry(vec![Stmt::CallTuple {
-            callee: 1,
-            args: vec![
-                CallArg::Scalar(ScalarExpr::Const(2.0)),
-                CallArg::Scalar(ScalarExpr::Const(3.0)),
-            ],
-            results: vec![0],
+            value: ScalarExpr::Const(7.0),
         }]),
-        helper(),
+    )
+}
+
+#[test]
+fn a_buffer_argument_is_passed_by_alias_with_its_strides_and_compiles() {
+    let m = Module::new(vec![
+        entry(vec![Stmt::Call {
+            callee: 1,
+            args: vec![CallArg::Buffer(0), CallArg::Scalar(tid())],
+            result: None,
+        }]),
+        writer(BufferRole::ReadWrite),
     ]);
-    assert!(decline(&m).contains("CallTuple"), "{}", decline(&m));
+    let g = Slang.lower_module(&m, 0).expect("lowers");
+    // The call passes the binding, its stride and its base; the callee reads them as parameters, not from `pb_`.
+    assert!(
+        g.source.contains("f1(b0, pb_.b0_stride0, pb_.b0_base,"),
+        "{}",
+        g.source
+    );
+    assert!(
+        g.source
+            .contains("RWStructuredBuffer<float> b0, int64_t b0_stride0, int64_t b0_base"),
+        "{}",
+        g.source
+    );
+    slangc_compiles(&g.source, &g.name);
+}
+
+#[test]
+fn shared_and_private_allocations_are_passed_as_generic_arrays_and_compile() {
+    let mut e = entry(vec![
+        Stmt::Call {
+            callee: 1,
+            args: vec![CallArg::Alloc(0), CallArg::Scalar(tid())],
+            result: None,
+        },
+        Stmt::Call {
+            callee: 1,
+            args: vec![CallArg::Alloc(1), CallArg::Scalar(tid())],
+            result: None,
+        },
+        Stmt::Call {
+            callee: 1,
+            args: vec![CallArg::Buffer(0), CallArg::Scalar(tid())],
+            result: None,
+        },
+    ]);
+    e.allocs = vec![
+        AllocDecl::new("sh", MemorySpace::Shared, F, Extent::Static(4)),
+        AllocDecl::new("pv", MemorySpace::Private, F, Extent::Static(4)),
+    ];
+    let m = Module::new(vec![e, writer(BufferRole::ReadWrite)]);
+    let g = Slang.lower_module(&m, 0).expect("lowers");
+    // Arrays pass as (array, stride 1, base 0); the callee takes the buffer as a generic array so one body serves both.
+    for want in [
+        "IRWArray<float>",
+        "f1(a0, 1, 0,",
+        "f1(a1, 1, 0,",
+        "f1(b0, pb_.b0_stride0,",
+    ] {
+        assert!(
+            g.source.contains(want),
+            "missing `{want}`:
+{}",
+            g.source
+        );
+    }
+    slangc_compiles(&g.source, &g.name);
+}
+
+#[test]
+fn a_constant_allocation_argument_is_still_a_named_decline() {
+    let mut e = entry(vec![Stmt::Call {
+        callee: 1,
+        args: vec![CallArg::Alloc(0), CallArg::Scalar(tid())],
+        result: None,
+    }]);
+    e.allocs = vec![AllocDecl::new(
+        "k",
+        MemorySpace::Constant,
+        F,
+        Extent::Static(4),
+    )];
+    let reader = KernelFn::new(
+        "reader",
+        F,
+        vec![
+            Param::buffer("buf", F, BufferRole::Read, Some(1)),
+            Param::scalar("i", ElementKind::U32, 0),
+        ],
+        vec![LocalDecl::scalar(ElementKind::U32)],
+        Block(vec![]),
+    );
+    let m = Module::new(vec![e, reader]);
+    let d = decline(&m);
+    assert!(d.contains("Constant"), "{d}");
 }
 
 #[test]
@@ -269,4 +348,134 @@ fn a_cyclic_module_is_refused_by_the_checker() {
         a,
     ]);
     assert!(decline(&m).contains("checker"), "{}", decline(&m));
+}
+
+/// `fn(a, b) -> (a * b, a + b)`: result local 2, extra result local 3.
+fn pair_helper() -> KernelFn {
+    KernelFn::new(
+        "pair",
+        F,
+        vec![Param::scalar("a", F, 0), Param::scalar("b", F, 1)],
+        vec![LocalDecl::scalar(F); 4],
+        Block(vec![
+            Stmt::Let {
+                local: 2,
+                init: ScalarExpr::Mul(Box::new(l(0)), Box::new(l(1))),
+            },
+            Stmt::Let {
+                local: 3,
+                init: ScalarExpr::Add(Box::new(l(0)), Box::new(l(1))),
+            },
+        ]),
+    )
+    .with_result(2)
+    .with_results([3])
+}
+
+fn two_args() -> Vec<CallArg> {
+    vec![
+        CallArg::Scalar(ScalarExpr::Const(2.0)),
+        CallArg::Scalar(ScalarExpr::Const(3.0)),
+    ]
+}
+
+#[test]
+fn a_tuple_call_unpacks_a_struct_result_and_compiles() {
+    let m = Module::new(vec![
+        entry(vec![
+            Stmt::Call {
+                callee: 1,
+                args: two_args(),
+                result: Some(2),
+            },
+            Stmt::CallTuple {
+                callee: 1,
+                args: two_args(),
+                results: vec![0, 1],
+            },
+            Stmt::Store {
+                place: out(tid()),
+                value: ScalarExpr::Add(
+                    Box::new(ScalarExpr::Add(Box::new(l(0)), Box::new(l(1)))),
+                    Box::new(l(2)),
+                ),
+            },
+        ]),
+        pair_helper(),
+    ]);
+    let g = Slang.lower_module(&m, 0).expect("lowers");
+    assert!(g.source.contains("struct R1"), "{}", g.source);
+    assert!(
+        g.source.contains(".v0") && g.source.contains(".v1"),
+        "{}",
+        g.source
+    );
+    slangc_compiles(&g.source, &g.name);
+}
+
+#[test]
+fn a_tuple_call_with_the_wrong_number_of_results_is_refused_by_the_checker() {
+    let m = Module::new(vec![
+        entry(vec![
+            Stmt::CallTuple {
+                callee: 1,
+                args: two_args(),
+                results: vec![0, 1, 2],
+            },
+            store_local0(),
+        ]),
+        pair_helper(),
+    ]);
+    assert!(
+        matches!(
+            Slang.lower_module(&m, 0),
+            Err(LowerError::UnsupportedKernel { .. })
+        ),
+        "a mismatched results list must be a typed decline"
+    );
+}
+
+#[test]
+fn an_extern_with_a_slang_asm_body_becomes_a_spirv_asm_function_and_compiles() {
+    let mk = |target: &str, body: BodyText| {
+        let decl = ExternDecl::new("fadd", vec![F, F], vec![F], Effects::pure())
+            .with_body(TargetBody::new(target, body));
+        Module::new(vec![entry(vec![
+            Stmt::ExternCall {
+                decl: 0,
+                args: vec![ScalarExpr::Const(2.0), ScalarExpr::Const(3.0)],
+                results: vec![0],
+            },
+            store_local0(),
+        ])])
+        .with_externs(vec![decl])
+    };
+    let asm = |t: &str| BodyText::Asm {
+        template: t.into(),
+        constraints: String::new(),
+    };
+    let g = Slang
+        .lower_module(&mk("slang", asm("OpFAdd $$float {2} {0} {1}")), 0)
+        .expect("lowers");
+    assert!(
+        g.source
+            .contains("spirv_asm { OpFAdd $$float result $p0 $p1 }"),
+        "{}",
+        g.source
+    );
+    slangc_compiles(&g.source, &g.name);
+    // Controls: the same asm keyed to another target, and a symbol body, are the named decline.
+    for m in [
+        mk("cuda-ptx", asm("add.f32 {2}, {0}, {1};")),
+        mk(
+            "slang",
+            BodyText::Symbol {
+                library: "libm".into(),
+                symbol: "fadd".into(),
+            },
+        ),
+    ] {
+        let d = decline(&m);
+        assert!(d.contains("no Slang body for extern `fadd`"), "{d}");
+    }
 }
