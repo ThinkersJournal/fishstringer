@@ -1,3 +1,0 @@
-kind: `Slang::lower_module` passes buffer arguments to callees (E16, second slice)
----
-A `Call` may now pass the caller's buffer parameter (`CallArg::Buffer`) to a callee's buffer parameter. The Slang callee takes the binding and its strides and base as function parameters (`RWStructuredBuffer<T> b<i>, int64_t b<i>_stride<d>…, int64_t b<i>_base`) and addresses it as the entry does, so the alias carries the caller's view. The buffer's rank must be declared; 16-bit float buffers in a callee, allocation arguments and `Asm`/`Symbol` extern bodies stay named declines. slangc-compiled in tests, not device-run.

@@ -1,3 +1,0 @@
-kind: `Slang::lower_module` passes `Shared` and `Private` allocations to callees (E16, fifth slice)
----
-A `Call` may pass the caller's allocation (`CallArg::Alloc`) to a callee's rank-1 buffer parameter. The array goes as (array, stride 1, base 0), and a callee that receives an allocation at any call site takes that buffer as a generic `IRWArray<T>` (`f<i><B<n> : IRWArray<T>>(B<n> b<n>, …)`), so the same body also accepts a real `RWStructuredBuffer`. A callee never passed an allocation keeps its plain `RWStructuredBuffer` parameter. `Constant` allocations stay a named decline. slangc-compiled in tests, not device-run.
