@@ -617,9 +617,7 @@ pub(crate) mod polyfill {
         let a = format!("abs({x})");
         let y0 = format!("pow({a}, 0.3333333333333333)");
         let newton = format!("({y0}+({a}/({y0}*{y0})-{y0})/3.0)");
-        format!(
-            "(({x} < 0.0 ? -1.0 : 1.0)*(({a} > 0.0 && ({a}-{a}) == 0.0) ? {newton} : {y0}))"
-        )
+        format!("(({x} < 0.0 ? -1.0 : 1.0)*(({a} > 0.0 && ({a}-{a}) == 0.0) ? {newton} : {y0}))")
     }
 }
 

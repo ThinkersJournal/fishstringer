@@ -33,14 +33,25 @@ fn slangc_compiles(source: &str, entry: &str) {
     std::fs::write(&src, source).expect("write");
     let out = Command::new("slangc")
         .arg(&src)
-        .args(["-entry", entry, "-stage", "compute", "-target", "spirv", "-o"])
+        .args([
+            "-entry", entry, "-stage", "compute", "-target", "spirv", "-o",
+        ])
         .arg(dir.path().join("k.spv"))
         .output()
         .expect("run slangc");
-    assert!(out.status.success(), "slangc:\n{}\n{source}", String::from_utf8_lossy(&out.stderr));
+    assert!(
+        out.status.success(),
+        "slangc:\n{}\n{source}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
-const POLYFILLED: [UnaryOp; 4] = [UnaryOp::Asinh, UnaryOp::Acosh, UnaryOp::Atanh, UnaryOp::Cbrt];
+const POLYFILLED: [UnaryOp; 4] = [
+    UnaryOp::Asinh,
+    UnaryOp::Acosh,
+    UnaryOp::Atanh,
+    UnaryOp::Cbrt,
+];
 const STILL_DECLINED: [UnaryOp; 4] = [UnaryOp::Erf, UnaryOp::Erfc, UnaryOp::Gelu, UnaryOp::Lgamma];
 
 #[test]
@@ -63,7 +74,10 @@ fn helper_function_unaries_stay_typed_declines() {
             Err(LowerError::UnsupportedOp { detail }) => {
                 assert!(detail.contains(&format!("{op:?}")), "{detail}")
             }
-            other => panic!("{op:?}: expected a typed decline, got {:?}", other.map(|k| k.source)),
+            other => panic!(
+                "{op:?}: expected a typed decline, got {:?}",
+                other.map(|k| k.source)
+            ),
         }
     }
 }
@@ -71,24 +85,42 @@ fn helper_function_unaries_stay_typed_declines() {
 // ---- f32 model of the emitted formulas (same operation order) ----
 fn l1p(t: f32) -> f32 {
     let u = 1.0 + t;
-    if u == 1.0 { t } else if t.abs() > 0.5 { u.ln() } else { u.ln() * t / (u - 1.0) }
+    if u == 1.0 {
+        t
+    } else if t.abs() > 0.5 {
+        u.ln()
+    } else {
+        u.ln() * t / (u - 1.0)
+    }
 }
-const LN2: f32 = 0.693_147_2;
+const LN2: f32 = std::f32::consts::LN_2;
 fn asinh_m(x: f32) -> f32 {
     let a = x.abs();
     let t = a + a * a / (1.0 + (1.0 + a * a).sqrt());
     (if x < 0.0 { -1.0 } else { 1.0 }) * if a > 1.0e18 { a.ln() + LN2 } else { l1p(t) }
 }
 fn acosh_m(x: f32) -> f32 {
-    if x > 1.0e18 { x.ln() + LN2 } else { l1p((x - 1.0) + ((x - 1.0) * (x + 1.0)).sqrt()) }
+    if x > 1.0e18 {
+        x.ln() + LN2
+    } else {
+        l1p((x - 1.0) + ((x - 1.0) * (x + 1.0)).sqrt())
+    }
 }
 fn atanh_m(x: f32) -> f32 {
-    if x.abs() < 0.5 { 0.5 * l1p(2.0 * x / (1.0 - x)) } else { 0.5 * ((1.0 + x) / (1.0 - x)).ln() }
+    if x.abs() < 0.5 {
+        0.5 * l1p(2.0 * x / (1.0 - x))
+    } else {
+        0.5 * ((1.0 + x) / (1.0 - x)).ln()
+    }
 }
 fn cbrt_m(x: f32) -> f32 {
     let a = x.abs();
     let y0 = a.powf(0.333_333_34);
-    let y = if a > 0.0 && a - a == 0.0 { y0 + (a / (y0 * y0) - y0) / 3.0 } else { y0 };
+    let y = if a > 0.0 && a.is_finite() {
+        y0 + (a / (y0 * y0) - y0) / 3.0
+    } else {
+        y0
+    };
     (if x < 0.0 { -1.0 } else { 1.0 }) * y
 }
 
@@ -96,7 +128,11 @@ fn cbrt_m(x: f32) -> f32 {
 fn ulp(got: f32, want64: f64) -> f64 {
     let want = want64 as f32;
     if got.is_nan() || want.is_nan() {
-        return if got.is_nan() && want.is_nan() { 0.0 } else { f64::INFINITY };
+        return if got.is_nan() && want.is_nan() {
+            0.0
+        } else {
+            f64::INFINITY
+        };
     }
     if got == want {
         return 0.0;
@@ -110,8 +146,24 @@ fn ulp(got: f32, want64: f64) -> f64 {
 
 /// Sample f32s: every 4097th bit pattern (~1M values) plus the edge cases.
 fn grid() -> impl Iterator<Item = f32> {
-    let edges = [0.0f32, -0.0, 1.0, -1.0, 0.5, -0.5, 2.0, 1e-30, 1e30, 1e-38, f32::MAX, f32::MIN_POSITIVE];
-    (0u32..=u32::MAX).step_by(4097).map(f32::from_bits).chain(edges)
+    let edges = [
+        0.0f32,
+        -0.0,
+        1.0,
+        -1.0,
+        0.5,
+        -0.5,
+        2.0,
+        1e-30,
+        1e30,
+        1e-38,
+        f32::MAX,
+        f32::MIN_POSITIVE,
+    ];
+    (0u32..=u32::MAX)
+        .step_by(4097)
+        .map(f32::from_bits)
+        .chain(edges)
 }
 
 fn worst(f: fn(f32) -> f32, r: fn(f64) -> f64, domain: fn(f32) -> bool) -> (f64, f32, u64) {
