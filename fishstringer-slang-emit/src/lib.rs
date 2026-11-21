@@ -52,9 +52,10 @@
 //! - Schedule: [`Schedule::Scalar`] only (the contiguous single-output Elementwise
 //!   path). Every other schedule panics — the honest v1 boundary, same convention
 //!   as the CUDA / CpuC emitters.
-//! - `Cbrt`/`Asinh`/`Acosh`/`Atanh` are inline polyfills (`mod polyfill`; ULP measured in
-//!   `tests/polyfill_unary.rs`). `Erf`/`Erfc`/`Gelu`/`Lgamma` (need a helper function) and
-//!   `Copysign`/`Nextafter` (declined by design; Baracuda's suite asserts it) stay declined.
+//! - `Cbrt`/`Asinh`/`Acosh`/`Atanh` are inline polyfills and `Erf`/`Erfc`/`Gelu`/`Lgamma` call f32
+//!   helper functions prepended to the kernel (`mod polyfill`; error measured in
+//!   `tests/polyfill_unary.rs`; f64 declines the helper four). `Copysign`/`Nextafter` stay
+//!   declined (by design; Baracuda's suite asserts it).
 //! - Harness is exact-dispatch (`uint i = tid.x;`, no `n` bounds guard yet) so it
 //!   stays byte-parseable by the lifter; a `cbuffer`-carried `n` + guard is a
 //!   follow-up. Params (scalar `p{i}` via a `cbuffer`) are likewise a follow-up —
@@ -437,6 +438,8 @@ fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> Result<GeneratedKern
         s.push_str(&format!("StructuredBuffer<{ctype}> input{i};\n"));
     }
     s.push_str(&format!("RWStructuredBuffer<{ctype}> output;\n"));
+    // Helper functions for the E17 erf/lgamma polyfills go HERE, if the body names one.
+    let helpers_at = s.len();
     s.push_str("[numthreads(256, 1, 1)]\n");
     s.push_str(&format!(
         "void {name}(uint3 tid : SV_DispatchThreadID) {{\n"
@@ -468,6 +471,9 @@ fn emit_scalar_slang(plan: &KernelPlan<'_>, ctype: &str) -> Result<GeneratedKern
     }
     s.push_str(&format!("    output[i] = {root};\n"));
     s.push_str("}\n");
+    if s[helpers_at..].contains(polyfill::HELPER_PREFIX) {
+        s.insert_str(helpers_at, polyfill::HELPERS_F32);
+    }
     Ok(GeneratedKernel::new(name, s))
 }
 
@@ -506,6 +512,14 @@ fn body_has_params(e: &ScalarExpr) -> bool {
 /// math (the ir admissibility table rejects it, so the panic is the backstop).
 fn slang_unary(op: UnaryOp, x: String, dtype: ElementKind) -> Result<Spelling, LowerError> {
     match dtype {
+        // The helper-function polyfills are f32 only (the helpers are `float`).
+        ElementKind::F64 if polyfill::needs_helper(op) => {
+            Ok(Spelling::Declined(Decline::UnsupportedDtypeForOp {
+                op: DeclinedOp::Unary(op),
+                dtype: ElementKind::F64,
+                why: "erf/erfc/gelu/lgamma polyfills are f32 only".to_string(),
+            }))
+        }
         ElementKind::F32 | ElementKind::F32Strict | ElementKind::F64 => slang_unary_fp(op, x),
         other => Ok(Spelling::Declined(Decline::UnsupportedDtypeForOp {
             op: DeclinedOp::Unary(op),
@@ -560,14 +574,13 @@ fn slang_unary_fp(op: UnaryOp, x: String) -> Result<Spelling, LowerError> {
         UnaryOp::Acosh => polyfill::acosh(&x),
         UnaryOp::Atanh => polyfill::atanh(&x),
         UnaryOp::Cbrt => polyfill::cbrt(&x),
-        // Still declined: these need a helper FUNCTION (a multi-statement
-        // polynomial/series), and a speller returns only an inline expression.
-        UnaryOp::Erf | UnaryOp::Erfc | UnaryOp::Gelu | UnaryOp::Lgamma => {
-            return Ok(Spelling::Declined(Decline::UnsupportedOp {
-                op: DeclinedOp::Unary(op),
-                why: "no base-profile Slang intrinsic; erf/erfc/gelu/lgamma need a helper-function polyfill".to_string(),
-            }));
-        }
+        // Calls into `polyfill::HELPERS_F32`, which `emit_scalar_slang` prepends when used.
+        UnaryOp::Erf => format!("fs_erf({x})"),
+        UnaryOp::Erfc => format!("fs_erfc({x})"),
+        // Exact (erf-based) GELU: 0.5*x*erfc(-x/sqrt(2)) -- the same function as the
+        // reference `0.5*x*(1+erf(x/sqrt(2)))` without its cancellation for x << 0.
+        UnaryOp::Gelu => format!("fs_gelu({x})"),
+        UnaryOp::Lgamma => format!("fs_lgamma({x})"),
     };
     Ok(Spelling::Spelled(spelled))
 }
@@ -579,6 +592,111 @@ fn slang_unary_fp(op: UnaryOp, x: String) -> Result<Spelling, LowerError> {
 /// `u = 1+t` (exactly `t` when `1+t` rounds to 1); plain `log(1+t)` once `|t| > 0.5`,
 /// where the correction factor only adds error.
 pub(crate) mod polyfill {
+    use unpopped::ir::UnaryOp;
+
+    pub(crate) fn needs_helper(op: UnaryOp) -> bool {
+        matches!(
+            op,
+            UnaryOp::Erf | UnaryOp::Erfc | UnaryOp::Gelu | UnaryOp::Lgamma
+        )
+    }
+
+    /// Every helper name starts with this; its presence in the kernel body is what asks for the block.
+    pub(crate) const HELPER_PREFIX: &str = "fs_";
+
+    /// f32 helpers for `Erf`/`Erfc`/`Gelu`/`Lgamma`, prepended to a kernel that calls one.
+    /// `tests/polyfill_unary.rs` carries an f32 model of the SAME formulas and the measured error.
+    pub(crate) const HELPERS_F32: &str = "\
+// E17 polyfills (fishstringer): erf/erfc/gelu/lgamma, f32.
+// exp(-a*a) with a*a split so the rounding of a*a is not amplified by exp.
+float fs_expnsq(float a)
+{
+    float ah = floor(a * 128.0) / 128.0;
+    float al = a - ah;
+    return exp(-(ah * ah)) * exp(-(al * (a + ah)));
+}
+// erf(a) for 0 <= a < 1: 2/sqrt(pi) * exp(-a^2) * sum 2^n a^(2n+1)/(2n+1)!!  (positive terms).
+float fs_erf_series(float a)
+{
+    float term = a;
+    float sum = a;
+    float a2 = a * a;
+    for (int n = 1; n < 32; n++)
+    {
+        term = term * 2.0 * a2 / float(2 * n + 1);
+        sum += term;
+    }
+    return 1.1283792 * fs_expnsq(a) * sum;
+}
+// erfc(a) for a >= 0.5 by the continued fraction, evaluated bottom-up; e = exp(-a*a).
+float fs_erfc_cf(float a, float e)
+{
+    float t = a;
+    for (int k = 200; k >= 1; k--)
+    {
+        t = a + (float(k) * 0.5) / t;
+    }
+    return 0.5641896 * e / t;
+}
+float fs_erfc_pos(float a)
+{
+    if (a < 0.5) { return 1.0 - fs_erf_series(a); }
+    if (a > 10.0) { return 0.0; }
+    return fs_erfc_cf(a, fs_expnsq(a));
+}
+float fs_erf(float x)
+{
+    float a = abs(x);
+    float r;
+    if (a < 1.0) { r = fs_erf_series(a); }
+    else if (a > 10.0) { r = 1.0; }
+    else { r = 1.0 - fs_erfc_cf(a, fs_expnsq(a)); }
+    return x < 0.0 ? -r : r;
+}
+float fs_erfc(float x)
+{
+    float r = fs_erfc_pos(abs(x));
+    return x < 0.0 ? 2.0 - r : r;
+}
+// gelu = 0.5*x*(1+erf(x/sqrt2)) = 0.5*x*erfc(-x/sqrt2). For x < 0 the erfc tail is tiny, and
+// the f32 rounding of x/sqrt2 would be amplified by exp(-a*a), so exp(-x*x/2) is taken from x itself.
+float fs_gelu(float x)
+{
+    if (x >= 0.0) { return 0.5 * x * (1.0 + fs_erf(x * 0.70710678)); }
+    float m = -x;
+    float a = m * 0.70710678;
+    if (a < 0.5) { return 0.5 * x * (1.0 - fs_erf_series(a)); }
+    if (a > 10.0) { return 0.0 * x; }
+    float mh = floor(m * 128.0) / 128.0;
+    float e = exp(-0.5 * (mh * mh)) * exp(-0.5 * ((m - mh) * (m + mh)));
+    return 0.5 * x * fs_erfc_cf(a, e);
+}
+// lgamma for x > 0: shift z up to >= 8, Stirling series, undo the shift.
+float fs_lgamma_pos(float x)
+{
+    float prod = 1.0;
+    float z = x;
+    for (int k = 0; k < 8; k++)
+    {
+        if (z < 8.0) { prod *= z; z += 1.0; }
+    }
+    float zi = 1.0 / z;
+    float zi2 = zi * zi;
+    float series = zi * (1.0 / 12.0 - zi2 * (1.0 / 360.0 - zi2 * (1.0 / 1260.0 - zi2 * (1.0 / 1680.0))));
+    return (z - 0.5) * log(z) - z + 0.9189385 + series - log(prod);
+}
+// x <= 0 by reflection: lgamma(x) = ln(pi / |sin(pi x)|) - lgamma(1 - x); poles give +inf.
+float fs_lgamma(float x)
+{
+    if (x != x) { return x; }
+    if (abs(x) > 3.4e38) { return asfloat(0x7f800000u); }
+    if (x > 0.0) { return fs_lgamma_pos(x); }
+    float r = x - round(x);
+    float s = abs(sin(3.1415927 * r));
+    return log(3.1415927 / s) - fs_lgamma_pos(1.0 - x);
+}
+";
+
     fn l1p(t: &str) -> String {
         format!(
             "((1.0+({t}))==1.0 ? ({t}) : (abs({t}) > 0.5 ? log(1.0+({t})) :              log(1.0+({t}))*({t})/((1.0+({t}))-1.0)))"
