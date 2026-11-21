@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.4.5 — `Cbrt`, `Asinh`, `Acosh`, `Atanh` lower on the elementwise path (E17, first slice)
+
+`slang_unary_fp` now spells the four as inline polyfills (`fishstringer-slang-emit` `mod polyfill`) instead of declining. Generated kernels compile with `slangc`. An f32 Rust model of the same formulas, measured against an f64 reference over ~0.26M-1.0M sampled f32 bit patterns per op, gives a worst case of 3 ULP (asinh), 2 (acosh), 3 (atanh) and 1 (cbrt); this assumes accurate `log`/`sqrt`/`pow`, and device-side primitive error is not measured (no device run). `Erf`/`Erfc`/`Gelu`/`Lgamma` stay typed declines (they need a helper function), and `Copysign`/`Nextafter` stay declined by design (Baracuda's cross-backend suite asserts it; reversing is a decision for pm-kernels).
+
 ## 0.4.4 — `Slang::lower_module` grows buffer arguments, `CallTuple`, extern `spirv_asm` bodies and allocation arguments (E16, slices 2-5)
 
 - **Buffer arguments.** A `Call` may pass the caller's buffer parameter (`CallArg::Buffer`) to a callee's buffer parameter. The Slang callee takes the binding and its strides and base as parameters (`RWStructuredBuffer<T> b<i>, int64_t b<i>_stride<d>…, int64_t b<i>_base`). The buffer's rank must be declared.

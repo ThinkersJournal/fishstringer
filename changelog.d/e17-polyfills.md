@@ -1,3 +1,0 @@
-kind: `Cbrt`, `Asinh`, `Acosh`, `Atanh` lower on the elementwise path (E17, first slice)
----
-`slang_unary_fp` now spells the four as inline polyfills (`fishstringer-slang-emit` `mod polyfill`) instead of declining. Generated kernels compile with `slangc`. An f32 Rust model of the same formulas, measured against an f64 reference over ~0.26M-1.0M sampled f32 bit patterns per op, gives a worst case of 3 ULP (asinh), 2 (acosh), 3 (atanh) and 1 (cbrt); this assumes accurate `log`/`sqrt`/`pow`, and device-side primitive error is not measured (no device run). `Erf`/`Erfc`/`Gelu`/`Lgamma` stay typed declines (they need a helper function), and `Copysign`/`Nextafter` stay declined by design (Baracuda's cross-backend suite asserts it; reversing is a decision for pm-kernels).
