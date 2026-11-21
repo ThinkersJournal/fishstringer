@@ -52,8 +52,9 @@
 //! - Schedule: [`Schedule::Scalar`] only (the contiguous single-output Elementwise
 //!   path). Every other schedule panics — the honest v1 boundary, same convention
 //!   as the CUDA / CpuC emitters.
-//! - Ops needing a polyfill (`Erf`/`Erfc`/`Gelu`/`Lgamma`/`Cbrt`/`Asinh`/`Acosh`/
-//!   `Atanh`; `Copysign`/`Nextafter`) are declined — a documented follow-up.
+//! - `Cbrt`/`Asinh`/`Acosh`/`Atanh` are inline polyfills (`mod polyfill`; ULP measured in
+//!   `tests/polyfill_unary.rs`). `Erf`/`Erfc`/`Gelu`/`Lgamma` (need a helper function) and
+//!   `Copysign`/`Nextafter` (declined by design; Baracuda's suite asserts it) stay declined.
 //! - Harness is exact-dispatch (`uint i = tid.x;`, no `n` bounds guard yet) so it
 //!   stays byte-parseable by the lifter; a `cbuffer`-carried `n` + guard is a
 //!   follow-up. Params (scalar `p{i}` via a `cbuffer`) are likewise a follow-up —
@@ -553,21 +554,71 @@ fn slang_unary_fp(op: UnaryOp, x: String) -> Result<Spelling, LowerError> {
         UnaryOp::Asin => format!("asin({x})"),
         UnaryOp::Acos => format!("acos({x})"),
         UnaryOp::Atan => format!("atan({x})"),
-        // Declined in v1 — no base-profile Slang intrinsic; each needs a polyfill
-        // (a documented follow-up). The honest boundary a non-C backend surfaces.
-        UnaryOp::Erf
-        | UnaryOp::Erfc
-        | UnaryOp::Gelu
-        | UnaryOp::Lgamma
-        | UnaryOp::Cbrt
-        | UnaryOp::Asinh
-        | UnaryOp::Acosh
-        | UnaryOp::Atanh => return Ok(Spelling::Declined(Decline::UnsupportedOp {
-            op: DeclinedOp::Unary(op),
-            why: "no base-profile Slang intrinsic; erf/erfc/gelu/lgamma/cbrt/asinh/acosh/atanh need polyfills".to_string(),
-        })),
+        // E17 polyfills (no base-profile Slang intrinsic): inline expressions of `x`.
+        // Formulas and their measured ULP error are in `mod polyfill`.
+        UnaryOp::Asinh => polyfill::asinh(&x),
+        UnaryOp::Acosh => polyfill::acosh(&x),
+        UnaryOp::Atanh => polyfill::atanh(&x),
+        UnaryOp::Cbrt => polyfill::cbrt(&x),
+        // Still declined: these need a helper FUNCTION (a multi-statement
+        // polynomial/series), and a speller returns only an inline expression.
+        UnaryOp::Erf | UnaryOp::Erfc | UnaryOp::Gelu | UnaryOp::Lgamma => {
+            return Ok(Spelling::Declined(Decline::UnsupportedOp {
+                op: DeclinedOp::Unary(op),
+                why: "no base-profile Slang intrinsic; erf/erfc/gelu/lgamma need a helper-function polyfill".to_string(),
+            }));
+        }
     };
     Ok(Spelling::Spelled(spelled))
+}
+
+/// E17 polyfills as inline Slang expressions of the operand text `x`.
+///
+/// `x` is repeated (as `Sqr` already does), so each is kept to a few hundred
+/// characters. `l1p` is the classic accurate `log(1+t)`: `log(u)*t/(u-1)` with
+/// `u = 1+t` (exactly `t` when `1+t` rounds to 1); plain `log(1+t)` once `|t| > 0.5`,
+/// where the correction factor only adds error.
+pub(crate) mod polyfill {
+    fn l1p(t: &str) -> String {
+        format!(
+            "((1.0+({t}))==1.0 ? ({t}) : (abs({t}) > 0.5 ? log(1.0+({t})) :              log(1.0+({t}))*({t})/((1.0+({t}))-1.0)))"
+        )
+    }
+    const LN2: &str = "0.6931471805599453";
+
+    /// asinh(x) = sign(x) * log1p(a + a*a/(1+sqrt(1+a*a))), a=|x|; a > 1e18 uses log(a)+ln2.
+    pub(crate) fn asinh(x: &str) -> String {
+        let a = format!("abs({x})");
+        let t = format!("({a}+{a}*{a}/(1.0+sqrt(1.0+{a}*{a})))");
+        format!(
+            "(({x} < 0.0 ? -1.0 : 1.0)*({a} > 1.0e18 ? log({a})+{LN2} : {}))",
+            l1p(&t)
+        )
+    }
+    /// acosh(x) = log1p(t), t = (x-1)+sqrt((x-1)*(x+1)); NaN below 1 (sqrt of a negative);
+    /// x > 1e18 uses log(x)+ln2.
+    pub(crate) fn acosh(x: &str) -> String {
+        let t = format!("(({x}-1.0)+sqrt(({x}-1.0)*({x}+1.0)))");
+        format!("({x} > 1.0e18 ? log({x})+{LN2} : {})", l1p(&t))
+    }
+    /// atanh(x) = 0.5*log1p(2x/(1-x)) for |x| < 0.5, else 0.5*log((1+x)/(1-x)) (the log1p form
+    /// cancels near |x| = 1); +-1 -> +-inf, |x| > 1 -> NaN.
+    pub(crate) fn atanh(x: &str) -> String {
+        format!(
+            "(abs({x}) < 0.5 ? 0.5*{} : 0.5*log((1.0+{x})/(1.0-{x})))",
+            l1p(&format!("(2.0*{x}/(1.0-{x}))"))
+        )
+    }
+    /// cbrt(x) = sign(x) * Y, a = |x|, Y0 = pow(a, 1/3), Y = Y0 + (a/(Y0*Y0) - Y0)/3 (one
+    /// Newton step, written without a cube so it neither overflows nor underflows over the
+    /// whole finite range). a = 0, inf and NaN skip the step (it would be 0/0 or inf/inf) and
+    /// take Y0, which is already exact there.
+    pub(crate) fn cbrt(x: &str) -> String {
+        let a = format!("abs({x})");
+        let y0 = format!("pow({a}, 0.3333333333333333)");
+        let newton = format!("({y0}+({a}/({y0}*{y0})-{y0})/3.0)");
+        format!("(({x} < 0.0 ? -1.0 : 1.0)*(({a} > 0.0 && ({a}-{a}) == 0.0) ? {newton} : {y0}))")
+    }
 }
 
 /// Lower a non-infix binary op for `dtype` in Slang. f32/f64 share the overloaded

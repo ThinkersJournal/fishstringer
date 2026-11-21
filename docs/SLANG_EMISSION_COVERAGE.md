@@ -12,7 +12,7 @@ comprehensive, given that our CUDA kernels (the most complete set, starting with
 `fishstringer-slang-emit/src/lib.rs`). It does **not** override `Backend::lower_kernel`, so the default applies and every
 kernel-layer `KernelFn` gets `LowerError::UnsupportedKernel` (pinned by
 `tests/lower_kernel_default_is_the_typed_decline.rs`). Even on the Elementwise path it declines f16/bf16, params,
-multi-output, hetero out-dtype and the polyfilled ops (`Erf` family, `Cbrt`, `Asinh`.., `Copysign`, `Nextafter`).
+multi-output, hetero out-dtype and the polyfilled ops (`Erf` family, `Copysign`, `Nextafter`; `Cbrt`/`Asinh`/`Acosh`/`Atanh` shipped in E17 slice 1).
 Only `unpopped-cpu-c` overrides `lower_kernel` (serial C, a correctness reference). The IR statement set it must cover
 is `unpopped::kernel::Stmt` (Let, Load, Assign, Store, MaskedLoad/Store, If, For, While, Break/Continue/Return, Barrier,
 AtomicRmw/Cas, Fence, Collective(Tuple), Mma, CopyAsync, AsyncCommit/Wait, Call(Tuple), ExternCall) over `Place`
