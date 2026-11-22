@@ -692,6 +692,7 @@ float fs_lgamma(float x)
     if (abs(x) > 3.4e38) { return asfloat(0x7f800000u); }
     if (x > 0.0) { return fs_lgamma_pos(x); }
     float r = x - round(x);
+    if (r == 0.0) { return asfloat(0x7f800000u); }
     float s = abs(sin(3.1415927 * r));
     return log(3.1415927 / s) - fs_lgamma_pos(1.0 - x);
 }

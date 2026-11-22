@@ -3,8 +3,9 @@
 //! `Erf`/`Erfc`/`Gelu`/`Lgamma` call f32 helper functions the emitter prepends (f64 declines them).
 //! (1) the generated kernels compile with `slangc`; (2) an f32 Rust model of the SAME formulas
 //! is measured in ULP against an f64 reference over a sampled f32 grid, and the bound below is
-//! the measured one. `Erf`/`Erfc`/`Gelu`/`Lgamma` stay typed declines (they need a helper function).
-//! The model uses Rust's f32 `ln`/`sqrt`/`powf`, so the bound is "the formula's error given
+//! the measured one. The erf-family f64 references are the same formulas as the model, so
+//! `erf_family_matches_pinned_libm_values` pins independent libm values.
+//! The model uses Rust's f32 `ln`/`sqrt`/`powf`/`exp`/`sin`, so the bound is "the formula's error given
 //! accurate primitives"; a GPU's own `log`/`pow` ULP adds on top and is NOT measured here (no device run).
 
 use std::process::Command;
@@ -79,11 +80,18 @@ fn helper_block_only_when_used_and_f64_declines() {
             .expect("f32 lowers")
             .source
     };
-    for op in HELPER_FOUR {
-        assert!(
-            gen_f32(op).contains("float fs_erf("),
-            "{op:?}: no helper block"
-        );
+    for (op, call) in [
+        (UnaryOp::Erf, "fs_erf("),
+        (UnaryOp::Erfc, "fs_erfc("),
+        (UnaryOp::Gelu, "fs_gelu("),
+        (UnaryOp::Lgamma, "fs_lgamma("),
+    ] {
+        let src = gen_f32(op);
+        assert!(src.contains("float fs_erf("), "{op:?}: no helper block");
+        // The kernel body (after the helper block) must call this op's own helper.
+        let body = &src[src.find("output[i] =").expect("body")..];
+        assert!(body.contains(call), "{op:?}: body does not call {call}:
+{body}");
     }
     assert!(
         !gen_f32(UnaryOp::Cbrt).contains("fs_"),
@@ -231,6 +239,9 @@ fn lgamma_m(x: f32) -> f32 {
         return lgamma_pos(x);
     }
     let r = x - x.round_ties_even();
+    if r == 0.0 {
+        return f32::INFINITY;
+    }
     let s = (std::f32::consts::PI * r).sin().abs();
     (std::f32::consts::PI / s).ln() - lgamma_pos(1.0 - x)
 }
@@ -396,6 +407,36 @@ fn lgamma_absolute_error_and_special_values() {
     assert!(worst <= 1.0e-4, "{worst:e}");
     assert_eq!(lgamma_m(0.0), f32::INFINITY);
     assert_eq!(lgamma_m(-3.0), f32::INFINITY);
+    // Every f32 with |x| >= 2^24 is an integer, hence a pole: +inf, not inf - inf = NaN.
+    assert_eq!(lgamma_m(-1.0e37), f32::INFINITY);
+    assert_eq!(lgamma_m(-3.0e38), f32::INFINITY);
+    assert_eq!(lgamma_m(-16_777_216.0), f32::INFINITY);
     assert_eq!(lgamma_m(f32::NEG_INFINITY), f32::INFINITY);
     assert!(lgamma_m(f32::NAN).is_nan());
+}
+
+/// Independent check for the erf family: values from libm (`math.erf`/`erfc`), not from the formulas
+/// above, so a wrong coefficient or branch cannot pass by agreeing with itself.
+#[test]
+fn erf_family_matches_pinned_libm_values() {
+    // (x, erf(x), erfc(x)) from libm, f64 digits.
+    let rows: [(f32, f64, f64); 6] = [
+        (0.1, 0.112_462_916_018_284_9, 0.887_537_083_981_715_1),
+        (0.5, 0.520_499_877_813_046_5, 0.479_500_122_186_953_5),
+        (1.0, 0.842_700_792_949_714_9, 0.157_299_207_050_285_1),
+        (2.0, 0.995_322_265_018_952_7, 4.677_734_981_047_266e-3),
+        (3.0, 0.999_977_909_503_001_4, 2.209_049_699_858_544e-5),
+        (-2.0, -0.995_322_265_018_952_7, 1.995_322_265_018_952_7),
+    ];
+    let close = |got: f32, want: f64, what: &str| {
+        let rel = ((got as f64 - want) / want).abs();
+        assert!(rel < 1.0e-6, "{what}: got {got:e}, want {want:e}");
+    };
+    for (x, e, c) in rows {
+        close(erf_m(x), e, &format!("erf({x})"));
+        close(erfc_m(x), c, &format!("erfc({x})"));
+    }
+    // gelu(x) = 0.5*x*erfc(-x/sqrt2): gelu(1) = 0.5*(1+erf(1/sqrt2)); gelu(-3) = -1.5*erfc(3/sqrt2).
+    close(gelu_m(1.0), 0.841_344_746_068_542_9, "gelu(1)");
+    close(gelu_m(-3.0), -0.004_049_694_094_890_2, "gelu(-3)");
 }
