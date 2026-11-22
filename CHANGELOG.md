@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.4.6 — f32 `Erf`, `Erfc`, `Gelu`, `Lgamma` lower on the elementwise path (E17, second slice)
+
+The emitter prepends f32 helper functions (`fs_erf`, `fs_erfc`, `fs_gelu`, `fs_lgamma`; erf by series below 1 and a continued fraction above, with `exp(-a*a)` split so the rounding of `a*a` is not amplified; lgamma by a shifted Stirling series with reflection for x <= 0) to a kernel that names one of them, and not otherwise. f64 declines them with a typed `UnsupportedDtype`. Generated kernels compile with `slangc`. Error is measured with an f32 Rust model of the same formulas against an f64 reference over sampled f32 bit patterns: erf 5 ULP, erfc 4, exact-erf gelu 5 (|x| < 12), lgamma 3 ULP for x >= 50. lgamma below 50 is stated as absolute error, 3.2e-5 on [-30, 50] with the poles excluded; its ULP error near the roots x = 1, 2 and on the negative axis is unbounded. This assumes accurate `exp`/`log`/`sin`; device primitive error is not measured (no device run). `Copysign` and `Nextafter` stay declined by design.
+
 ## 0.4.5 — `Cbrt`, `Asinh`, `Acosh`, `Atanh` lower on the elementwise path (E17, first slice)
 
 `slang_unary_fp` now spells the four as inline polyfills (`fishstringer-slang-emit` `mod polyfill`) instead of declining. Generated kernels compile with `slangc`. An f32 Rust model of the same formulas, measured against an f64 reference over ~0.26M-1.0M sampled f32 bit patterns per op, gives a worst case of 3 ULP (asinh), 2 (acosh), 3 (atanh) and 1 (cbrt); this assumes accurate `log`/`sqrt`/`pow`, and device-side primitive error is not measured (no device run). `Erf`/`Erfc`/`Gelu`/`Lgamma` stay typed declines (they need a helper function), and `Copysign`/`Nextafter` stay declined by design (Baracuda's cross-backend suite asserts it; reversing is a decision for pm-kernels).
