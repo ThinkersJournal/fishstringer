@@ -8,6 +8,12 @@
 //! The model uses Rust's f32 `ln`/`sqrt`/`powf`/`exp`/`sin`, so the bound is "the formula's error given
 //! accurate primitives"; a GPU's own `log`/`pow` ULP adds on top and is NOT measured here (no device run).
 
+#![allow(
+    clippy::approx_constant,
+    clippy::excessive_precision,
+    reason = "the model mirrors the emitted Slang f32 literals and the pinned libm table verbatim; std consts would change them"
+)]
+
 use std::process::Command;
 
 use fishstringer_slang_emit::Slang;
@@ -90,8 +96,11 @@ fn helper_block_only_when_used_and_f64_declines() {
         assert!(src.contains("float fs_erf("), "{op:?}: no helper block");
         // The kernel body (after the helper block) must call this op's own helper.
         let body = &src[src.find("output[i] =").expect("body")..];
-        assert!(body.contains(call), "{op:?}: body does not call {call}:
-{body}");
+        assert!(
+            body.contains(call),
+            "{op:?}: body does not call {call}:
+{body}"
+        );
     }
     assert!(
         !gen_f32(UnaryOp::Cbrt).contains("fs_"),
