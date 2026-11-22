@@ -824,7 +824,11 @@ fn slang_binary_int(
     // Unpopped integer rule 3 (docs/int-div-shift-semantics.md): the shift count
     // is taken modulo the operand width N (`count & (N - 1)`). A raw `<<` is
     // poison at a count >= N once Slang lowers to SPIR-V.
-    let mask = if dtype == ElementKind::I64 { 63 } else { 31 };
+    let mask = if matches!(dtype, ElementKind::I64 | ElementKind::U64) {
+        63
+    } else {
+        31
+    };
     let spelled = match op {
         BinaryOp::BitAnd => format!("({a} & {b})"),
         BinaryOp::BitOr => format!("({a} | {b})"),
@@ -947,6 +951,10 @@ mod tests {
         assert_eq!(s(BinaryOp::Shr, ElementKind::I32), "(a >> (b & 31))");
         assert_eq!(s(BinaryOp::Shl, ElementKind::I64), "(a << (b & 63))");
         assert_eq!(s(BinaryOp::Shr, ElementKind::I64), "(a >> (b & 63))");
+        // A 64-bit unsigned operand takes the same 63 mask as I64 (a 31 mask would silently
+        // clip every shift of a u64 to 31 bits). Control: U32 beside it keeps 31.
+        assert_eq!(s(BinaryOp::Shl, ElementKind::U64), "(a << (b & 63))");
+        assert_eq!(s(BinaryOp::Shr, ElementKind::U64), "(a >> (b & 63))");
         assert_eq!(s(BinaryOp::BitAnd, ElementKind::I32), "(a & b)");
         // `uint`: the same mask at 32 bits; Slang's `>>` on `uint` is logical.
         assert_eq!(s(BinaryOp::Shl, ElementKind::U32), "(a << (b & 31))");
