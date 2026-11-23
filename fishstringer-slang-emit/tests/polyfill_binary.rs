@@ -169,6 +169,22 @@ fn nextafter_m(a: f32, b: f32, m: Mutant) -> f32 {
 fn copysign_ref(a: f32, b: f32) -> f32 {
     a.copysign(b)
 }
+// `f32::next_up`/`next_down` are stable since 1.86; this crate's MSRV is 1.85, so spell them out.
+fn next_up(x: f32) -> f32 {
+    if x.is_nan() || x == f32::INFINITY {
+        x
+    } else if x == 0.0 {
+        f32::from_bits(1)
+    } else if x > 0.0 {
+        f32::from_bits(x.to_bits() + 1)
+    } else {
+        f32::from_bits(x.to_bits() - 1)
+    }
+}
+fn next_down(x: f32) -> f32 {
+    -next_up(-x)
+}
+
 fn nextafter_ref(a: f32, b: f32) -> f32 {
     if a.is_nan() || b.is_nan() {
         f32::NAN
@@ -177,9 +193,9 @@ fn nextafter_ref(a: f32, b: f32) -> f32 {
     } else if a == 0.0 {
         f32::from_bits(1).copysign(b)
     } else if b > a {
-        a.next_up()
+        next_up(a)
     } else {
-        a.next_down()
+        next_down(a)
     }
 }
 
@@ -215,8 +231,8 @@ fn edges() -> Vec<f32> {
     let base = v.clone();
     for x in base {
         if x.is_finite() {
-            v.push(x.next_up());
-            v.push(x.next_down());
+            v.push(next_up(x));
+            v.push(next_down(x));
         }
     }
     v
@@ -247,7 +263,7 @@ fn first_mismatch(m: Mutant) -> Option<String> {
         // Close pairs, where nextafter is not just "far in one direction".
         .chain(
             r.iter()
-                .flat_map(|&a| [(a, a.next_up()), (a, a.next_down()), (a, -a)]),
+                .flat_map(|&a| [(a, next_up(a)), (a, next_down(a)), (a, -a)]),
         );
     for (a, b) in pairs {
         let (c, c_want) = (copysign_m(a, b, m), copysign_ref(a, b));
