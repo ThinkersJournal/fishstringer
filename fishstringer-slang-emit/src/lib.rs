@@ -54,8 +54,8 @@
 //!   as the CUDA / CpuC emitters.
 //! - `Cbrt`/`Asinh`/`Acosh`/`Atanh` are inline polyfills and `Erf`/`Erfc`/`Gelu`/`Lgamma` call f32
 //!   helper functions prepended to the kernel (`mod polyfill`; error measured in
-//!   `tests/polyfill_unary.rs`; f64 declines the helper four). `Copysign`/`Nextafter` stay
-//!   declined (by design; Baracuda's suite asserts it).
+//!   `tests/polyfill_unary.rs`; f64 declines the helper four). `Copysign` (inline) and
+//!   `Nextafter` (helper) lower at f32 by bit operations on `asuint`; f64 declines them.
 //! - Harness is exact-dispatch (`uint i = tid.x;`, no `n` bounds guard yet) so it
 //!   stays byte-parseable by the lifter; a `cbuffer`-carried `n` + guard is a
 //!   follow-up. Params (scalar `p{i}` via a `cbuffer`) are likewise a follow-up —
@@ -594,6 +594,12 @@ fn slang_unary_fp(op: UnaryOp, x: String) -> Result<Spelling, LowerError> {
 pub(crate) mod polyfill {
     use unpopped::ir::UnaryOp;
 
+    /// `copysign(a, b)` for f32: the magnitude bits of `a` with the sign bit of `b` (so `-0`, `+-inf` and NaN
+    /// follow the bits, as C's `copysignf` does). Each operand is named once.
+    pub(crate) fn copysign(a: &str, b: &str) -> String {
+        format!("asfloat((asuint({a}) & 0x7fffffffu) | (asuint({b}) & 0x80000000u))")
+    }
+
     pub(crate) fn needs_helper(op: UnaryOp) -> bool {
         matches!(
             op,
@@ -684,6 +690,17 @@ float fs_lgamma_pos(float x)
     float zi2 = zi * zi;
     float series = zi * (1.0 / 12.0 - zi2 * (1.0 / 360.0 - zi2 * (1.0 / 1260.0 - zi2 * (1.0 / 1680.0))));
     return (z - 0.5) * log(z) - z + 0.9189385 + series - log(prod);
+}
+// nextafter(a, b) as C's nextafterf: NaN if either is NaN, b if equal (so nextafter(-0, +0) = +0), the smallest
+// subnormal toward b from zero, else one ulp (one bit pattern) toward b. Needs denormals preserved (required_slangc_args).
+float fs_nextafter(float a, float b)
+{
+    if (a != a || b != b) { return a + b; }
+    if (a == b) { return b; }
+    if (a == 0.0) { return asfloat((asuint(b) & 0x80000000u) | 1u); }
+    uint u = asuint(a);
+    if ((a < b) == (a > 0.0)) { u += 1u; } else { u -= 1u; }
+    return asfloat(u);
 }
 // x <= 0 by reflection: lgamma(x) = ln(pi / |sin(pi x)|) - lgamma(1 - x); poles give +inf.
 float fs_lgamma(float x)
@@ -789,12 +806,17 @@ fn slang_binary_fp(op: BinaryOp, a: String, b: String, ct: &str) -> Result<Spell
         BinaryOp::CmpLe => format!("(({ct}){a} <= ({ct}){b} ? 1.0 : 0.0)"),
         BinaryOp::CmpGt => format!("(({ct}){a} > ({ct}){b} ? 1.0 : 0.0)"),
         BinaryOp::CmpGe => format!("(({ct}){a} >= ({ct}){b} ? 1.0 : 0.0)"),
-        BinaryOp::Copysign | BinaryOp::Nextafter => {
-            return Ok(Spelling::Declined(Decline::UnsupportedOp {
+        // E17 slice 3 (pm-kernels approval 2026-11-22): f32 only, by bit operations on `asuint`.
+        // `Copysign` is inline; `Nextafter` calls `fs_nextafter` (in `polyfill::HELPERS_F32`).
+        BinaryOp::Copysign | BinaryOp::Nextafter if ct == "double" => {
+            return Ok(Spelling::Declined(Decline::UnsupportedDtypeForOp {
                 op: DeclinedOp::Binary(op),
-                why: "declined by design, or int-only with no float lowering".to_string(),
+                dtype: ElementKind::F64,
+                why: "copysign/nextafter polyfills are f32 only".to_string(),
             }));
         }
+        BinaryOp::Copysign => polyfill::copysign(&a, &b),
+        BinaryOp::Nextafter => format!("fs_nextafter({a}, {b})"),
         BinaryOp::BitAnd
         | BinaryOp::BitOr
         | BinaryOp::BitXor
@@ -824,7 +846,11 @@ fn slang_binary_int(
     // Unpopped integer rule 3 (docs/int-div-shift-semantics.md): the shift count
     // is taken modulo the operand width N (`count & (N - 1)`). A raw `<<` is
     // poison at a count >= N once Slang lowers to SPIR-V.
-    let mask = if dtype == ElementKind::I64 { 63 } else { 31 };
+    let mask = if matches!(dtype, ElementKind::I64 | ElementKind::U64) {
+        63
+    } else {
+        31
+    };
     let spelled = match op {
         BinaryOp::BitAnd => format!("({a} & {b})"),
         BinaryOp::BitOr => format!("({a} | {b})"),
@@ -947,6 +973,10 @@ mod tests {
         assert_eq!(s(BinaryOp::Shr, ElementKind::I32), "(a >> (b & 31))");
         assert_eq!(s(BinaryOp::Shl, ElementKind::I64), "(a << (b & 63))");
         assert_eq!(s(BinaryOp::Shr, ElementKind::I64), "(a >> (b & 63))");
+        // A 64-bit unsigned operand takes the same 63 mask as I64 (a 31 mask would silently
+        // clip every shift of a u64 to 31 bits). Control: U32 beside it keeps 31.
+        assert_eq!(s(BinaryOp::Shl, ElementKind::U64), "(a << (b & 63))");
+        assert_eq!(s(BinaryOp::Shr, ElementKind::U64), "(a >> (b & 63))");
         assert_eq!(s(BinaryOp::BitAnd, ElementKind::I32), "(a & b)");
         // `uint`: the same mask at 32 bits; Slang's `>>` on `uint` is logical.
         assert_eq!(s(BinaryOp::Shl, ElementKind::U32), "(a << (b & 31))");

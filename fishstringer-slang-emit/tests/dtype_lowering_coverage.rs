@@ -590,7 +590,10 @@ fn an_op_level_refusal_is_a_typed_decline_not_a_panic() {
     use unpopped::backend::LowerError;
     use unpopped::ir::BinaryOp;
 
-    let dt = ElementKind::F32;
+    // Slang lowered `Copysign` at f32 from E17 slice 3 (pm-kernels approval 2026-11-22), so the op-level refusal
+    // this test pins is `Copysign` at f64, which stays declined. The shape under test is unchanged: a typed `Err`
+    // that names the op, never an unwind.
+    let dt = ElementKind::F64;
     let op = OpDef::elementwise(
         "copysign",
         2,
@@ -605,21 +608,21 @@ fn an_op_level_refusal_is_a_typed_decline_not_a_panic() {
     }));
 
     let result = outcome.expect(
-        "an op-level refusal must NOT unwind. This is KISS-EMIT-6.8-0004: an emitter          must not panic on any input, and an op it does not spell IS input.",
+        "an op-level refusal must NOT unwind. This is KISS-EMIT-6.8-0004: an emitter must not panic on any input, and an op it does not spell IS input.",
     );
 
     match result {
-        Err(LowerError::UnsupportedOp { detail }) => {
+        Err(LowerError::UnsupportedDtype { detail, .. } | LowerError::UnsupportedOp { detail }) => {
             assert!(
-                detail.contains("Copysign"),
+                detail.contains("opysign"),
                 "the decline must name what it refused; got: {detail}"
             );
         }
         Err(other) => panic!(
-            "expected UnsupportedOp naming Copysign, got {other:?}. The variant is the              matchable part -- a consumer branching on WHY cannot use the message."
+            "expected a typed decline naming Copysign, got {other:?}. The variant is the matchable part -- a consumer branching on WHY cannot use the message."
         ),
         Ok(k) => panic!(
-            "Slang emitted for Copysign, which it declines by design:
+            "Slang emitted for Copysign at f64, which it declines:
 {}",
             k.source
         ),
