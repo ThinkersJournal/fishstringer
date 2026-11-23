@@ -4,6 +4,11 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.4.7 — f32 `Copysign`/`Nextafter` lowered; canonical Apache-2.0 text in the root and `fishstringer-kernels-source`; `U64` shift mask
+
+`Copysign` (inline) and `Nextafter` (helper `fs_nextafter`) now lower at f32 by bit operations on `asuint`; f64 still declines both, typed. Before this Slang refused both and Baracuda's cross-backend suite asserted the refusal, which now fails by design (pm-kernels approved, notice sent to baracuda). Verified by a Rust model of the same operations compared by bit pattern with std on an edge set (0, +-0, +-inf, NaN, sign crossing, subnormal boundary, MAX) and a seeded sample, seven seeded mutants each caught, the emitted text checked to contain the modelled operations, and `slangc` compiles. NOT device-run; `fs_nextafter` assumes denormals preserved (`-denorm-mode-fp32 preserve`, in the kernel header).
+The root and `fishstringer-kernels-source` `LICENSE-APACHE` are the canonical Apache-2.0 text (the old copies lacked words; checked word for word against serde's), and the `U64` shift mask is 63.
+
 ## 0.4.6 — f32 `Erf`, `Erfc`, `Gelu`, `Lgamma` lower on the elementwise path (E17, second slice)
 
 The emitter prepends f32 helper functions (`fs_erf`, `fs_erfc`, `fs_gelu`, `fs_lgamma`; erf by series below 1 and a continued fraction above, with `exp(-a*a)` split so the rounding of `a*a` is not amplified; lgamma by a shifted Stirling series with reflection for x <= 0) to a kernel that names one of them, and not otherwise. f64 declines them with a typed `UnsupportedDtype`. Generated kernels compile with `slangc`. Error is measured with an f32 Rust model of the same formulas against an f64 reference over sampled f32 bit patterns: erf 5 ULP, erfc 4, exact-erf gelu 5 (|x| < 12), lgamma 3 ULP for x >= 50. lgamma below 50 is stated as absolute error, 3.2e-5 on [-30, 50] with the poles excluded; its ULP error near the roots x = 1, 2 and on the negative axis is unbounded. This assumes accurate `exp`/`log`/`sin`; device primitive error is not measured (no device run). `Copysign` and `Nextafter` stay declined by design.
