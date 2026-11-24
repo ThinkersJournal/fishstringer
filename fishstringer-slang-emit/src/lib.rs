@@ -273,10 +273,13 @@ fn dtype_ok(dt: ElementKind, target: TargetId) -> DtypeSupport {
 }
 
 /// The capability tokens `lower_kernel` may put in `KernelInterface::requires`, spelled as the `<arith>` names of the `vulkan:`
-/// namespace. Copied from `kiss-vulkan-vocab` `Arith::NAMES` at Vulkane commit `e55e7fbc2090acc54d9a8e02b80b01f59a5a656c`
-/// (`dot8 f16 f64 i16 i64 i8 st16 st8`); the atomics names `a64`, `af32`, `af64` are decided but wait for vocab 7. Nothing in
-/// unpopped checks `requires` against a target and a name is free-form, so a test pins the emitter's tokens to this list.
-pub const VULKAN_ARITH_TOKENS: &[&str] = &["dot8", "f16", "f64", "i16", "i64", "i8", "st16", "st8"];
+/// namespace: the whole alphabet of the published `kiss-vulkan-vocab` (`Arith::alphabet`, vocabulary 7), not a copy. A token
+/// the emitter produces is one of these; nothing in unpopped checks `requires` against a target and a name is free-form, so a
+/// test pins the emitter's tokens to this list.
+#[must_use]
+pub fn vulkan_arith_tokens() -> Vec<&'static str> {
+    kiss_vulkan_vocab::Arith::alphabet()
+}
 
 /// The tokens in `interface.requires` that a target does not offer, in order. `target_arith` is the target's `<arith>` names.
 /// This is the consumer-side gate (a launcher or Vulkane calls it with the device's tokens); the emitter never sees a target.

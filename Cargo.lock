@@ -80,6 +80,7 @@ name = "fishstringer-slang-emit"
 version = "0.4.7"
 dependencies = [
  "fishstringer-slang-parse",
+ "kiss-vulkan-vocab",
  "serde_json",
  "tempfile",
  "unpopped",
@@ -157,6 +158,12 @@ name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
+
+[[package]]
+name = "kiss-vulkan-vocab"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7eb360dd97d6697898c9f15ab46377a84eef55a4dbb02f8a2846c1fc36fce1a0"
 
 [[package]]
 name = "libc"
