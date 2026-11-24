@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.4.8 — CI moves the CodeRipper portfolio workflow pin to dc45e363
+
+The `portfolio` job now calls the shared workflow at `dc45e3632ab9f471292458e5ccba5f375084a70a` (was `c72a6e03`). That commit installs CodeRipper 0.47.15 (its `CODERIPPER_VERSION`); coderipper main is 0.47.21, so the pin is not the newest release. CI configuration only; no code or version change. The job stays advisory, and this repo's lock carries no cookie.
+
 ## 0.4.7 — f32 `Copysign`/`Nextafter` lowered; canonical Apache-2.0 text in the root and `fishstringer-kernels-source`; `U64` shift mask
 
 `Copysign` (inline) and `Nextafter` (helper `fs_nextafter`) now lower at f32 by bit operations on `asuint`; f64 still declines both, typed. Before this Slang refused both and Baracuda's cross-backend suite asserted the refusal, which now fails by design (pm-kernels approved, notice sent to baracuda). Verified by a Rust model of the same operations compared by bit pattern with std on an edge set (0, +-0, +-inf, NaN, sign crossing, subnormal boundary, MAX) and a seeded sample, seven seeded mutants each caught, the emitted text checked to contain the modelled operations, and `slangc` compiles. NOT device-run; `fs_nextafter` assumes denormals preserved (`-denorm-mode-fp32 preserve`, in the kernel header).
