@@ -58,6 +58,7 @@ groupshared float tile_v[BC * D_MAX];           // BC × D
 groupshared float tile_s[BR * BC];              // BR × BC, raw scores then P
 groupshared float row_m[BR];                    // running max
 groupshared float row_l[BR];                    // running denominator
+groupshared uint  row_nan[BR];                  // sticky: a NaN score was seen (row must output NaN)
 groupshared float tile_o[BR * D_MAX];           // BR × D, partial output
 
 bool position_admissible(uint qi, uint kj) {
@@ -127,6 +128,7 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID) {
     if (tid < BR) {
         row_m[tid] = -3.402823e+38;
         row_l[tid] = 0.0;
+        row_nan[tid] = 0u;
     }
     for (uint i = tid; i < BR * D_MAX; i += 256u) {
         tile_o[i] = 0.0;
@@ -193,6 +195,9 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID) {
             float tile_max = -3.402823e+38;
             for (uint kj = 0u; kj < k_tile_cols; kj++) {
                 float s = tile_s[qi_local * BC + kj];
+                // NaN never wins the max compare, so it would be swallowed;
+                // latch it instead (an admissible NaN score = NaN in Q or K).
+                if (!(s == s)) row_nan[qi_local] = 1u;
                 if (s > tile_max) tile_max = s;
             }
 
@@ -233,10 +238,14 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID) {
         uint qi_local = tid;
         float l = row_l[qi_local];
         float inv_l = (l > 0.0) ? (1.0 / l) : 0.0;
+        // Poisoned row (NaN score seen): output NaN. A row that was only
+        // masked (max stays -inf/-FLT_MAX, no NaN) keeps writing zeros.
+        float nan_v = asfloat(0x7fc00000u);
+        bool poisoned = row_nan[qi_local] != 0u;
         uint qi_global = q_tile_start + qi_local;
         for (uint dd = 0u; dd < d; dd++) {
             o_buf[o_off + qi_global * q_row_stride + dd] =
-                tile_o[qi_local * D_MAX + dd] * inv_l;
+                poisoned ? nan_v : tile_o[qi_local * D_MAX + dd] * inv_l;
         }
     }
 }
