@@ -28,8 +28,8 @@
 //! Moved here from `unpopped::convert` (Unpopped `213df4f`, v0.34.11); see
 //! `THIRD-PARTY-NOTICES.md`.
 
-use tree_sitter::{Parser, Tree};
-use unpopped_convert::Frontend;
+use tree_sitter::{Node, Parser, Tree};
+use unpopped_convert::{EntryModel, EntryModelError, Frontend, Resource, ResourceKind, Semantic};
 
 /// Parse Slang source into a tree-sitter CST.
 ///
@@ -66,7 +66,174 @@ pub const SLANG: Frontend = Frontend::new(
     "output",
     "input",
     parse_slang,
-);
+)
+.with_entry_model(read_entry_model);
+
+fn text<'a>(n: Node<'_>, src: &'a str) -> &'a str {
+    n.utf8_text(src.as_bytes()).unwrap_or("")
+}
+
+/// Every node of `kind` under `n`, in source order.
+fn collect<'t>(n: Node<'t>, kind: &str, out: &mut Vec<Node<'t>>) {
+    if n.kind() == kind {
+        out.push(n);
+    }
+    let mut c = n.walk();
+    for ch in n.children(&mut c) {
+        collect(ch, kind, out);
+    }
+}
+
+fn numbers(args: Node<'_>, src: &str) -> Vec<u32> {
+    let mut c = args.walk();
+    args.named_children(&mut c)
+        .filter(|a| a.kind() == "number_literal")
+        .filter_map(|a| text(a, src).trim_end_matches(['u', 'U']).parse().ok())
+        .collect()
+}
+
+/// `[[vk::binding(slot, set)]]` on a file-scope declaration: the slot, if it gives one.
+fn binding_slot(decl: Node<'_>, src: &str) -> Option<u32> {
+    let mut c = decl.walk();
+    for a in decl.children(&mut c) {
+        if a.kind() != "attribute_declaration" {
+            continue;
+        }
+        let mut c2 = a.walk();
+        for attr in a.named_children(&mut c2) {
+            let name = attr.child_by_field_name("name").map(|n| text(n, src));
+            if attr.kind() == "attribute" && name == Some("binding") {
+                let mut c3 = attr.walk();
+                let args = attr
+                    .named_children(&mut c3)
+                    .find(|n| n.kind() == "argument_list")?;
+                return numbers(args, src).first().copied();
+            }
+        }
+    }
+    None
+}
+
+/// Reads a Slang entry point off the CST for [`Frontend::with_entry_model`]: the `[numthreads]` block, the `SV_*` semantics on the
+/// entry's parameters, and the file-scope `StructuredBuffer` / `RWStructuredBuffer` / `ConstantBuffer` globals the entry body
+/// references, in slot order (the walker's convention, which fishstringer's own emission follows).
+///
+/// # Errors
+///
+/// [`EntryModelError`] when the entry is missing, a semantic is not an execution id, or a referenced global is a resource type
+/// this reader does not know.
+pub fn read_entry_model(
+    tree: &Tree,
+    src: &str,
+    entry: &str,
+) -> Result<EntryModel, EntryModelError> {
+    let root = tree.root_node();
+    let mut fns = Vec::new();
+    collect(root, "function_definition", &mut fns);
+    let func = fns
+        .into_iter()
+        .find(|f| {
+            f.child_by_field_name("declarator")
+                .and_then(|d| d.child_by_field_name("declarator"))
+                .is_some_and(|n| text(n, src) == entry)
+        })
+        .ok_or_else(|| EntryModelError::new(format!("no entry point named `{entry}`")))?;
+
+    // [numthreads(x, y, z)]
+    let mut block = None;
+    let mut c = func.walk();
+    for a in func
+        .children(&mut c)
+        .filter(|a| a.kind() == "hlsl_attribute")
+    {
+        let mut calls = Vec::new();
+        collect(a, "call_expression", &mut calls);
+        for call in calls {
+            let is_nt = call
+                .child_by_field_name("function")
+                .is_some_and(|f| text(f, src) == "numthreads");
+            if let (true, Some(args)) = (is_nt, call.child_by_field_name("arguments")) {
+                if let [x, y, z] = numbers(args, src)[..] {
+                    block = Some([x, y, z]);
+                } else {
+                    return Err(EntryModelError::new(
+                        "numthreads without three constant extents",
+                    ));
+                }
+            }
+        }
+    }
+
+    // SV_* semantics on the parameters; a parameter with none is left for the walker to name.
+    let mut semantics = Vec::new();
+    let mut params = Vec::new();
+    collect(func, "parameter_declaration", &mut params);
+    for p in params {
+        let Some(name) = p.child_by_field_name("declarator") else {
+            continue;
+        };
+        let mut sems = Vec::new();
+        collect(p, "semantics", &mut sems);
+        let Some(sem) = sems.first() else { continue };
+        let sem_text = text(*sem, src).trim_start_matches(':').trim();
+        let s = match sem_text {
+            "SV_DispatchThreadID" => Semantic::DispatchThreadId,
+            "SV_GroupID" => Semantic::GroupId,
+            "SV_GroupThreadID" => Semantic::GroupThreadId,
+            "SV_GroupIndex" => Semantic::GroupIndex,
+            other => return Err(EntryModelError::new(format!("the semantic `{other}`"))),
+        };
+        semantics.push((text(name, src).to_string(), s));
+    }
+
+    // Identifiers the entry body mentions.
+    let mut idents = Vec::new();
+    if let Some(body) = func.child_by_field_name("body") {
+        collect(body, "identifier", &mut idents);
+    }
+    let used: Vec<&str> = idents.iter().map(|n| text(*n, src)).collect();
+
+    // File-scope resources: `[[vk::binding(N, 0)]] KIND<T> name;`, referenced ones only.
+    let mut resources = Vec::new();
+    let mut c = root.walk();
+    for (order, d) in root
+        .children(&mut c)
+        .filter(|d| d.kind() == "declaration")
+        .enumerate()
+    {
+        let (Some(ty), Some(decl)) = (
+            d.child_by_field_name("type"),
+            d.child_by_field_name("declarator"),
+        ) else {
+            continue;
+        };
+        if ty.kind() != "template_type" {
+            continue;
+        }
+        let name = text(decl, src);
+        if !used.contains(&name) {
+            continue;
+        }
+        let kind_name = ty.child_by_field_name("name").map_or("", |n| text(n, src));
+        let kind = match kind_name {
+            "StructuredBuffer" => ResourceKind::StructuredRO,
+            "RWStructuredBuffer" => ResourceKind::StructuredRW,
+            "ConstantBuffer" => ResourceKind::ConstantBuffer,
+            other => return Err(EntryModelError::new(format!("the resource type `{other}`"))),
+        };
+        let mut targs = Vec::new();
+        collect(ty, "type_descriptor", &mut targs);
+        let elem = targs
+            .first()
+            .and_then(|t| t.child_by_field_name("type"))
+            .map(|t| text(t, src).to_string())
+            .ok_or_else(|| EntryModelError::new("a resource without an element type"))?;
+        let slot = binding_slot(d, src).unwrap_or(u32::try_from(order).unwrap_or(u32::MAX));
+        resources.push(Resource::new(name, kind, elem, slot));
+    }
+    resources.sort_by_key(|r| (r.kind == ResourceKind::ConstantBuffer, r.slot));
+    Ok(EntryModel::new(block, semantics, resources))
+}
 
 #[cfg(test)]
 mod tests {
