@@ -477,7 +477,8 @@ fn emit_scalar_slang(
     }
     s.push_str(&format!("{}RWStructuredBuffer<{ctype}> output;\n", at(n)));
     if n_params > 0 {
-        s.push_str("struct Params_\n{\n");
+        // `n` comes first: the element count the guard below checks, so a launch need not be a multiple of 256.
+        s.push_str("struct Params_\n{\n    uint n;\n");
         for i in 0..n_params {
             s.push_str(&format!("    float p{i};\n"));
         }
@@ -493,6 +494,9 @@ fn emit_scalar_slang(
         "void {name}(uint3 tid : SV_DispatchThreadID) {{\n"
     ));
     s.push_str("    uint i = tid.x;\n");
+    if n_params > 0 {
+        s.push_str("    if (i >= pb_.n) {\n        return;\n    }\n");
+    }
     for i in 0..n_params {
         s.push_str(&format!("    float p{i} = pb_.p{i};\n"));
     }
@@ -533,7 +537,8 @@ fn emit_scalar_slang(
 }
 
 /// The launch interface of a kernel that carries `n_params` runtime scalars: the buffers at slots `0..=n` (inputs, then the
-/// output), the `ConstantBuffer` at `n + 1` (after the buffers, as `lower_kernel` places it) holding `p0..` as packed `float`s.
+/// output), the `ConstantBuffer` at `n + 1` (after the buffers, as `lower_kernel` places it) holding the element count `n`
+/// (`u32`, offset 0, read by the bounds guard) and then `p0..` as packed `float`s (offset `4 + 4 * i`).
 fn params_interface(plan: &KernelPlan<'_>, n: usize, n_params: usize) -> KernelInterface {
     let mut iface = KernelInterface::default();
     let mut params = Vec::new();
@@ -558,11 +563,15 @@ fn params_interface(plan: &KernelPlan<'_>, n: usize, n_params: usize) -> KernelI
     for i in 0..=n {
         iface = iface.with_binding(Binding::new(i, 0, i as u32));
     }
-    let mut block = ParamsBlock::new(4 * n_params as u32, 4);
+    let mut block = ParamsBlock::new(4 + 4 * n_params as u32, 4).with_field(ParamsBlockField::new(
+        "n",
+        0,
+        ElementKind::U32,
+    ));
     for i in 0..n_params {
         block = block.with_field(ParamsBlockField::new(
             format!("p{i}"),
-            4 * i as u32,
+            4 + 4 * i as u32,
             ElementKind::F32,
         ));
     }

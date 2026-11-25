@@ -65,6 +65,12 @@ fn an_interface_caller_gets_the_block_the_bindings_and_the_layout() {
         "{src}"
     );
     assert!(src.contains("float p0 = pb_.p0;"), "{src}");
+    assert!(src.contains("uint n;"), "n is the first block field: {src}");
+    let guard = src.find("if (i >= pb_.n)").expect("the n guard");
+    assert!(
+        guard < src.find("float p0 = pb_.p0;").unwrap() && guard < src.find("output[i] =").unwrap(),
+        "the guard comes before any read or store: {src}"
+    );
     let i = g.interface().expect("an interface is stated");
     let slots: Vec<_> = i.bindings.iter().map(|b| (b.param, b.slot)).collect();
     assert_eq!(
@@ -73,8 +79,10 @@ fn an_interface_caller_gets_the_block_the_bindings_and_the_layout() {
         "buffers by slot; the block follows them at 2"
     );
     let pb = i.params_block.as_ref().expect("a params block");
-    assert_eq!((pb.size, pb.align, pb.fields.len()), (4, 4, 1));
-    assert_eq!((pb.fields[0].name.as_str(), pb.fields[0].offset), ("p0", 0));
+    assert_eq!((pb.size, pb.align, pb.fields.len()), (8, 4, 2));
+    assert_eq!((pb.fields[0].name.as_str(), pb.fields[0].offset), ("n", 0));
+    assert_eq!((pb.fields[1].name.as_str(), pb.fields[1].offset), ("p0", 4));
+    assert_eq!(pb.fields[0].ty, ElementKind::U32);
     assert_eq!(i.params.len(), 3, "input0, output, p0");
 }
 
@@ -86,6 +94,10 @@ fn a_parameterless_plan_is_the_same_for_both_callers_and_states_no_interface() {
     assert_eq!(a.source, b.source);
     assert!(!a.source.contains("vk::binding"), "historical text kept");
     assert!(a.interface().is_none());
+    assert!(
+        !a.source.contains("pb_"),
+        "no block, no guard: exact dispatch kept"
+    );
 }
 
 #[test]
