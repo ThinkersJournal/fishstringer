@@ -29,6 +29,15 @@ struct Params {
 static const float F32_NEG_INF = -3.402823e+38;
 static const float F32_POS_INF =  3.402823e+38;
 
+// NaN-aware "does v displace cur": a NaN wins (torch convention) and, once
+// the running best is a NaN, nothing but an earlier-index NaN displaces it.
+bool take_new(bool is_max, float v, float cur)
+{
+    if (isnan(v)) return !isnan(cur);
+    if (isnan(cur)) return false;
+    return is_max ? (v > cur) : (v < cur);
+}
+
 [shader("compute")]
 [numthreads(256, 1, 1)]
 void main(uint3 gid : SV_DispatchThreadID)
@@ -47,7 +56,7 @@ void main(uint3 gid : SV_DispatchThreadID)
 
     for (uint i = 0u; i < p.d_dim; i++) {
         float v = input[base + i * p.n_inner];
-        bool better = is_max ? (v > best_v) : (v < best_v);
+        bool better = take_new(is_max, v, best_v);
         if (better) {
             best_v = v;
             best_i = i;

@@ -18,6 +18,15 @@ groupshared uint   wg_idx[256];
 static const double F64_NEG_INF = -1.7976931348623157e+308;
 static const double F64_POS_INF =  1.7976931348623157e+308;
 
+// NaN-aware "does v displace cur": a NaN wins (torch convention) and, once
+// the running best is a NaN, nothing but an earlier-index NaN displaces it.
+bool take_new(bool is_max, double v, double cur)
+{
+    if (isnan(v)) return !isnan(cur);
+    if (isnan(cur)) return false;
+    return is_max ? (v > cur) : (v < cur);
+}
+
 [shader("compute")]
 [numthreads(256, 1, 1)]
 void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
@@ -34,7 +43,7 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     uint   best_i = 0u;
     for (uint col = tid; col < params.n_cols; col += 256u) {
         double v = input[row_off + col];
-        bool better = is_max ? (v > best_v) : (v < best_v);
+        bool better = take_new(is_max, v, best_v);
         if (better) {
             best_v = v;
             best_i = col;
@@ -50,9 +59,8 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             uint other = tid + stride;
             double ov = wg_val[other];
             uint   oi = wg_idx[other];
-            bool take_other = is_max
-                ? (ov > wg_val[tid] || (ov == wg_val[tid] && oi < wg_idx[tid]))
-                : (ov < wg_val[tid] || (ov == wg_val[tid] && oi < wg_idx[tid]));
+            bool same = (ov == wg_val[tid]) || (isnan(ov) && isnan(wg_val[tid]));
+            bool take_other = take_new(is_max, ov, wg_val[tid]) || (same && oi < wg_idx[tid]);
             if (take_other) {
                 wg_val[tid] = ov;
                 wg_idx[tid] = oi;
