@@ -2,7 +2,7 @@
 //! Row 17 / E11: 16-bit floats. An f16 and a bf16 kernel (`out = x * 2 + y`) compile with `slangc`; a bf16 buffer is stored as
 //! `uint16_t` and every access converts; a 16-bit scalar parameter stays a typed decline.
 
-use fishstringer_slang_emit::{Slang, VULKAN_ARITH_TOKENS, unmet_requirements};
+use fishstringer_slang_emit::{Slang, unmet_requirements, vulkan_arith_tokens};
 use unpopped::backend::Backend;
 use unpopped::exec::{ExecId, LaunchShape};
 use unpopped::ir::ScalarExpr;
@@ -75,12 +75,13 @@ fn the_tokens_a_kernel_needs_are_declared_sorted() {
 #[test]
 fn every_emitted_token_is_a_vocabulary_name() {
     // Control: the list is not empty and knows a real name, so the subset check below can fail.
-    assert!(VULKAN_ARITH_TOKENS.contains(&"i64"));
-    assert!(!VULKAN_ARITH_TOKENS.contains(&"int64"));
+    let names = vulkan_arith_tokens();
+    assert!(names.contains(&"i64"));
+    assert!(!names.contains(&"int64"));
     for dt in [ElementKind::F32, ElementKind::F16, ElementKind::Bf16] {
         for t in requires(dt) {
             assert!(
-                VULKAN_ARITH_TOKENS.contains(&t.as_str()),
+                names.contains(&t.as_str()),
                 "`{t}` is not a vulkan <arith> name"
             );
         }
@@ -95,4 +96,15 @@ fn the_gate_names_the_token_a_target_lacks() {
     assert_eq!(unmet_requirements(iface, &[]), ["f16", "i64", "st16"]);
     // Control: a target that offers everything has nothing unmet.
     assert!(unmet_requirements(iface, &["f16", "i64", "st16"]).is_empty());
+}
+
+#[test]
+fn the_token_list_is_the_published_vocabulary_not_a_copy() {
+    // Vocabulary 7 (kiss-vulkan-vocab 0.6.0) names three atomics tokens the old hand copy (vocabulary 6) lacked.
+    let names = vulkan_arith_tokens();
+    for t in ["a64", "af32", "af64"] {
+        assert!(names.contains(&t), "`{t}` must come from the crate");
+    }
+    assert_eq!(names, kiss_vulkan_vocab::Arith::alphabet());
+    assert_eq!(kiss_vulkan_vocab::VOCABULARY_VERSION, 7);
 }

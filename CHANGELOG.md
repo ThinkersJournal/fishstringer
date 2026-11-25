@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.5.0 — **BREAKING**: `VULKAN_ARITH_TOKENS` replaced by `vulkan_arith_tokens()` from the published `kiss-vulkan-vocab` 0.6.0
+
+`fishstringer-slang-emit` now depends on `kiss-vulkan-vocab` 0.6.0 (crates.io) instead of carrying a hand copy of its `<arith>` names. The const `VULKAN_ARITH_TOKENS` (vocabulary 6, copied at Vulkane `e55e7fbc`) is gone; `vulkan_arith_tokens() -> Vec<&'static str>` returns `Arith::alphabet()`, which is vocabulary 7 and so also names the atomics tokens `a64`, `af32` and `af64`. `lower_kernel` emits none of those yet; only the list a consumer checks against grew. Verified red-first: the new test `the_token_list_is_the_published_vocabulary_not_a_copy` (the three atomics names come from the crate, the list equals `Arith::alphabet()`, `VOCABULARY_VERSION` is 7) failed to compile before the change and passes after; the existing token and gate tests pass unchanged; workspace tests, clippy `-D warnings` and `cargo deny` are clean. Migration: replace `VULKAN_ARITH_TOKENS` with `&vulkan_arith_tokens()`.
+
 ## 0.4.8 — CI moves the CodeRipper portfolio workflow pin to dc45e363
 
 The `portfolio` job now calls the shared workflow at `dc45e3632ab9f471292458e5ccba5f375084a70a` (was `c72a6e03`). That commit installs CodeRipper 0.47.15 (its `CODERIPPER_VERSION`); coderipper main is 0.47.21, so the pin is not the newest release. CI configuration only; no code or version change. The job stays advisory, and this repo's lock carries no cookie.
