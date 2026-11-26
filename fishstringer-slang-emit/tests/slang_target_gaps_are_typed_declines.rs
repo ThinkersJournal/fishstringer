@@ -440,7 +440,7 @@ fn collective_and_collective_tuple_decline_by_name_including_nested() {
     }
 }
 
-/// unpopped 0.57.0 (U8c): `Stmt::ProxyFence` is a typed decline that names the statement and says why, not the
+/// unpopped 0.57.0 (U8c): `Stmt::ProxyFence` is a gap decline (`gaps.rs`) that names the statement and says why, not the
 /// generic "this statement" wildcard. Control: the empty kernel declines generically and does not mention it.
 #[test]
 fn proxy_fence_declines_by_name() {
@@ -449,87 +449,154 @@ fn proxy_fence_declines_by_name() {
         space: MemorySpace::Shared,
     });
     let d = decline(&k);
-    assert!(d.contains("ProxyFence") && d.contains("0.57.0"), "{d}");
+    assert!(d.starts_with(GAP_PREFIX) && d.contains("ProxyFence"), "{d}");
     assert!(!decline(&empty()).contains("ProxyFence"));
 }
 
 /// unpopped 0.57.0 (U8c) parity: every NVIDIA async-proxy statement and byte-addressed place is a typed
 /// `UnsupportedKernel` that names it, never the generic "this statement"/"this place". Control: a kernel that stores
 /// through a `Place::Alloc` lowers past this point (its decline, if any, does not name any of these).
+/// unpopped 0.57 U8c. Each kernel is checker-CONFORMING (so it is the Slang emitter, not unpopped's `check_kernel`,
+/// that refuses it: a `[1,1,1]` launch is refused by the checker with `WgmmaUnsupported`, which also contains
+/// "Wgmma"). The assertions pin WHICH site fires: the permanent NVIDIA-only constructs are gaps (`GAP_PREFIX`,
+/// raised in `gaps.rs`), the byte places are "not lowered yet" (`kernel_lower.rs`), and no decline is the checker's.
 #[test]
 fn u8c_statements_and_byte_places_decline_by_name() {
-    use unpopped::exec::LaunchShape;
+    use unpopped::exec::{LaunchShape, SubgroupSize};
     use unpopped::ir::ScalarExpr;
-    use unpopped::kernel::{BufferRole, OperandLayout, Param, Place};
+    use unpopped::kernel::{BufferRole, LocalDecl, OperandLayout, Param, Place};
     let z = || ScalarExpr::Const(0.0);
-    let pl = || Place::Logical {
-        buffer: 0,
-        coords: vec![],
+    let zi = || ScalarExpr::ConstInt(0, ElementKind::I32);
+    let alloc = |i: u32| Place::Alloc {
+        alloc: i,
+        index: zi(),
     };
-    let cases: Vec<(Stmt, &str)> = vec![
+    let launch = || {
+        let mut l = LaunchShape::new([128, 1, 1], [1, 1, 1]);
+        l.subgroup = Some(SubgroupSize::new(32, 32));
+        l
+    };
+    let shared = |n: &str, e| AllocDecl::new(n, MemorySpace::Shared, e, Extent::Static(4096));
+    // allocs: 0,1 Shared f16 tiles; 2 Private f32 fragment (n/2 = 4); 3 Private f16 (2 = 2 * count); 4 Tensor f32 (128 lanes x 1 column)
+    let allocs = |tensor: bool| {
+        let mut v = vec![
+            shared("a", ElementKind::F16),
+            shared("b", ElementKind::F16),
+            AllocDecl::new(
+                "d",
+                MemorySpace::Private,
+                ElementKind::F32,
+                Extent::Static(4),
+            ),
+            AllocDecl::new(
+                "h",
+                MemorySpace::Private,
+                ElementKind::F16,
+                Extent::Static(2),
+            ),
+        ];
+        if tensor {
+            v.push(AllocDecl::new(
+                "t",
+                MemorySpace::Tensor,
+                ElementKind::F32,
+                Extent::Static(128),
+            ));
+        }
+        v
+    };
+    let cases: Vec<(Stmt, &str, bool)> = vec![
         (
             Stmt::Wgmma {
                 n: 8,
                 ab: ElementKind::F16,
                 acc: ElementKind::F32,
-                a: pl(),
-                b: pl(),
-                d: 0,
-                scale_d: z(),
+                a: alloc(0),
+                b: alloc(1),
+                d: 2,
+                scale_d: zi(),
                 a_layout: OperandLayout::RowMajor,
                 b_layout: OperandLayout::RowMajor,
             },
-            "Wgmma",
+            "Wgmma statement",
+            true,
         ),
-        (Stmt::WgmmaCommit, "Wgmma"),
+        (Stmt::WgmmaCommit, "Wgmma statement", true),
         (
             Stmt::Tcgen05Mma {
                 n: 8,
                 ab: ElementKind::F16,
                 acc: ElementKind::F32,
-                a: pl(),
-                b: pl(),
-                d: 0,
-                d_col: z(),
-                scale_d: z(),
+                a: alloc(0),
+                b: alloc(1),
+                d: 4,
+                d_col: zi(),
+                scale_d: zi(),
                 a_layout: OperandLayout::RowMajor,
                 b_layout: OperandLayout::RowMajor,
             },
-            "Tcgen05",
+            "tensor-memory allocation",
+            true,
         ),
         (
             Stmt::Tcgen05Ld {
-                src: 0,
-                col: z(),
+                src: 4,
+                col: zi(),
                 count: 1,
-                dst: 0,
+                dst: 2,
             },
-            "Tcgen05",
+            "tensor-memory allocation",
+            true,
+        ),
+        (Stmt::GridDepWait, "grid-dependency", false),
+        (Stmt::GridDepLaunchDependents, "grid-dependency", false),
+        (
+            Stmt::MatrixLoad {
+                count: 1,
+                trans: false,
+                src: alloc(0),
+                dst: 3,
+            },
+            "matrix load/store",
+            false,
+        ),
+        (
+            Stmt::MatrixStore {
+                count: 1,
+                trans: false,
+                dst: alloc(0),
+                src: 3,
+            },
+            "matrix load/store",
+            false,
         ),
         (
             Stmt::Load {
                 local: 0,
                 place: Place::Raw {
                     buffer: 0,
-                    byte_offset: ScalarExpr::ConstInt(0, ElementKind::I32),
+                    byte_offset: zi(),
                     elem: ElementKind::F32,
                 },
             },
             "Place::Raw",
+            false,
         ),
         (
             Stmt::Load {
                 local: 0,
                 place: Place::AllocRaw {
                     alloc: 0,
-                    byte_offset: ScalarExpr::ConstInt(0, ElementKind::I32),
+                    byte_offset: zi(),
                     elem: ElementKind::F32,
                 },
             },
             "Place::AllocRaw",
+            false,
         ),
     ];
-    for (st, what) in cases {
+    let _ = z;
+    for (st, what, is_gap) in cases {
         let mut k = KernelFn::new(
             "k",
             ElementKind::F32,
@@ -539,32 +606,29 @@ fn u8c_statements_and_byte_places_decline_by_name() {
                 BufferRole::ReadWrite,
                 Some(1),
             )],
-            vec![unpopped::kernel::LocalDecl::scalar(ElementKind::F32)],
+            vec![LocalDecl::scalar(ElementKind::F32)],
             Block(vec![]),
         )
-        .with_allocs(vec![AllocDecl::new(
-            "s",
-            MemorySpace::Shared,
-            ElementKind::F32,
-            Extent::Static(4),
-        )])
-        .with_launch(LaunchShape::new([1, 1, 1], [1, 1, 1]));
+        .with_allocs(allocs(what.contains("tensor")))
+        .with_launch(launch());
         k.body.0.push(st);
         let d = decline(&k);
         assert!(d.contains(what), "{what}: {d}");
         assert!(
-            !d.contains("this statement") && !d.contains("this place"),
-            "{d}"
+            !d.contains("checker refuses"),
+            "{what} reached the unpopped checker, not the emitter: {d}"
         );
+        assert_eq!(d.starts_with(GAP_PREFIX), is_gap, "{what}: {d}");
     }
-    let mut ok = empty().with_launch(LaunchShape::new([1, 1, 1], [1, 1, 1]));
+    // Control: the same launch and allocations with a statement that lowers do not decline by any of these names.
+    let mut ok = empty().with_allocs(allocs(false)).with_launch(launch());
     ok.body.0.push(Stmt::Return);
     let d = Slang
         .lower_kernel(&ok)
         .map(|_| String::new())
         .unwrap_or_else(|e| format!("{e:?}"));
     assert!(
-        !d.contains("Wgmma") && !d.contains("Tcgen05") && !d.contains("Place::"),
+        !d.contains("Wgmma statement") && !d.contains("Place::"),
         "{d}"
     );
 }

@@ -665,7 +665,11 @@ fn stmts(
             }
             // Every remaining `Stmt` variant is named, so a variant added by a later Unpopped release breaks this
             // match at compile time instead of falling into a wildcard (unpopped 0.57 made `Stmt` exhaustive on
-            // purpose). The patent-held ones are declined earlier, by name, in `gaps.rs`.
+            // purpose). Only THIS match is exhaustive: `callees`, `alloc_args` and `extern_uses` still end in `_ => {}`
+            // and recurse only into If/For/While, which is right while those are the only `Stmt` variants that carry a
+            // `Block` (checked against the 0.57.0 source); a new block-carrying variant needs those three updated.
+            // The patent-held and U8c ones are declined earlier, by name, in `gaps.rs`, whose wording differs from the
+            // text here (the two sites are defence in depth for each other; edit both together).
             Stmt::MulticastLoadReduce { .. } => {
                 return Err(no(
                     kernel,
@@ -712,6 +716,10 @@ fn stmts(
                     "a Wgmma statement (U8c, unpopped 0.57.0): NVIDIA warpgroup matrix multiply, no Vulkan spelling",
                 ));
             }
+            // Defence in depth, NOT reachable today: a Tcgen05 statement needs a `Tensor` allocation (the unpopped
+            // checker enforces it), and `gaps.rs` and the allocation match decline `Tensor` first. The same holds for
+            // Wgmma/WgmmaCommit/ProxyFence (declined in `gaps.rs`), so those arms are kept only so that a new variant
+            // still breaks this match at compile time. `u8c_decline_sites_are_reached` pins which site fires.
             Stmt::Tcgen05Mma { .. } | Stmt::Tcgen05Ld { .. } => {
                 return Err(no(
                     kernel,
@@ -944,6 +952,12 @@ fn lower_entry(
                     "    {ty} a{k}[{n}]; // {}
 ",
                     a.name
+                ));
+            }
+            MemorySpace::Tensor => {
+                return Err(no(
+                    kernel,
+                    "a Tensor-memory allocation (tcgen05 tensor memory, no Vulkan spelling)",
                 ));
             }
             _ => return Err(no(kernel, "a Constant or Global allocation")),
