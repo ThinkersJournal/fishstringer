@@ -573,7 +573,7 @@ fn u8c_statements_and_byte_places_decline_by_name() {
                 groups: 1,
                 bar: alloc(0),
             },
-            "mbarrier statement",
+            "CopyUnpack statement",
             true,
         ),
         (Stmt::GridDepWait, "grid-dependency", false),
