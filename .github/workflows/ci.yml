@@ -85,10 +85,30 @@ jobs:
       - name: slangc runs and is the pinned version
         shell: bash
         run: slangc -v 2>&1 | tee /dev/stderr | grep -q '2026.21'
+      # dxc is Microsoft's DirectXShaderCompiler, used only by tests/lower_kernel_hlsl_collectives.rs to check that the HLSL
+      # we emit compiles (`dxc -T cs_6_6`). Nothing of it is vendored or redistributed: the job downloads the upstream
+      # release asset and checks it against its sha256 (the digest GitHub records for the asset, re-computed by hand from a
+      # download on 2026-11-26, identical). Release v1.9.2609 (Linux asset linux_dxc_2026_09_28.x86_x64.tar.gz).
+      - name: Install pinned dxc (runner provisioning)
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=v1.9.2609
+          asset=linux_dxc_2026_09_28.x86_x64.tar.gz
+          sha=96faadc7f5c282d2ffda49804beb4c3ee38127bc252b723234e3c5cdf7aa39a1
+          curl -fsSL -o dxc.tar.gz "https://github.com/microsoft/DirectXShaderCompiler/releases/download/${tag}/${asset}"
+          echo "${sha}  dxc.tar.gz" | sha256sum -c -
+          mkdir dxc && tar xzf dxc.tar.gz -C dxc
+          echo "$PWD/dxc/bin" >> "$GITHUB_PATH"
+          echo "LD_LIBRARY_PATH=$PWD/dxc/lib" >> "$GITHUB_ENV"
+      - name: dxc runs (the HLSL tests are fatal without it)
+        shell: bash
+        run: dxc --version 2>&1 | tee /dev/stderr | grep -q 'dxcompiler'
       - name: Test fishstringer-slang-emit
         shell: bash
         env:
           FISHSTRINGER_REQUIRE_SLANGC: "1"
+          FISHSTRINGER_REQUIRE_DXC: "1"
         run: cargo test -p fishstringer-slang-emit --features convert
 
   # No toolchain needed: the compile script parses, its manifest is consistent with the sources on disk, and the
