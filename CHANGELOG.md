@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.8.0 — take unpopped 0.59.1 (U63 uniformity guard): dependency line only
+
+`fishstringer-slang-emit` and `fishstringer-slang-parse` take `unpopped`, `unpopped-vocab`, `unpopped-cpu-c` and `unpopped-convert` 0.59.1 (0.58.0 before). Dependency lines and `Cargo.lock` only; no source change, nothing breaks for our consumers (the new `KernelError::CollectiveAfterReturn` is a unit variant of a `non_exhaustive` enum, and we have no wildcard-arm dependence). Verified: `cargo test --workspace --all-features` passes on every test target (0 failures), including `fuzz.rs` and `backend_declines.rs` that baracuda's 0.59.1 bump was blocked on. This unblocks baracuda's dev-dep tests.
+
 ## 0.7.0 — **BREAKING**: takes unpopped 0.58.0 (breaking upstream); the new U8c statements decline by name
 
 Take unpopped 0.58.0 (BREAKING upstream): `fishstringer-slang-emit`, `-parse` and `-kernels-source` now require unpopped, unpopped-vocab, unpopped-convert and unpopped-cpu-c 0.58.0. The new statements `Tcgen05Alloc`, `Tcgen05Dealloc`, `Tcgen05RelinquishPermit` are declined by name as target gaps (NVIDIA tensor memory, no Vulkan spelling), and `CopyUnpack` is a patent-class decline by name (board 434 C): unpopped's doc says the CopyBulk patent note applies and emitters for other manufacturers decline it. Test fixtures carry the new `Wgmma.a_regs` and `Tcgen05Mma.m/d_lane/b_ty/negate_*` fields; each new decline is pinned by a checker-valid-shaped case and mutant-checked (removing the `Tcgen05Alloc` gap arm fails the test).
