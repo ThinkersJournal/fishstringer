@@ -82,11 +82,11 @@ fn stmt_gap(s: &Stmt) -> Option<String> {
         | Stmt::CopyBulk { .. } => Some(
             "mbarrier statement (MbarInit/MbarArrive/MbarCompleteTx/MbarWait/CopyBulk): declined by name, possible exposure, board 434 C extended, see docs/PATENT_SWEEP.md".into(),
         ),
-        // CopyUnpack (unpopped 0.58.0): NOT a docs/PATENT_SWEEP.md row by name. It completes on an mbarrier, and unpopped's
-        // own doc note says the CopyBulk patent note applies and emitters for other manufacturers decline it. Declined by
-        // name on that basis; the PM may reclassify.
+        // CopyUnpack (unpopped 0.58.0): patent-class decline, board 434 C. It completes on an mbarrier, and unpopped
+        // v0.58.0 kernel.rs:1095 says "the patent note on Stmt::CopyBulk applies; emitters for other manufacturers
+        // decline it". Not a PATENT_SWEEP row by name; the basis is that doc line. Slang to SPIR-V is non-NVIDIA.
         Stmt::CopyUnpack { .. } => Some(
-            "CopyUnpack statement: FP4 unpack copy completing on an mbarrier; declined by name, unpopped 0.58.0 applies the CopyBulk patent note to it (not a docs/PATENT_SWEEP.md row by name)".into(),
+            "CopyUnpack statement: FP4 unpack copy completing on an mbarrier; declined by name, possible exposure, board 434 C (unpopped 0.58.0 kernel.rs: the CopyBulk patent note applies), see docs/PATENT_SWEEP.md".into(),
         ),
         Stmt::WgmmaWait { .. } | Stmt::Tcgen05Commit { .. } => Some(
             "pending-matrix-multiply wait (WgmmaWait/Tcgen05Commit): declined by name, possible exposure, board 434 C extended, see docs/PATENT_SWEEP.md".into(),
