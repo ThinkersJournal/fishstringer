@@ -3,7 +3,7 @@
 //! `UnsupportedKernel` decline whose reason starts with [`GAP_PREFIX`] and names the construct.
 //! Peer/cluster *places* and `devices > 1` are not scanned yet: they need Unpopped variants crates.io lacks.
 
-use unpopped::exec::{Extent, Scope};
+use unpopped::exec::{Extent, MemorySpace, Scope};
 use unpopped::kernel::{Block, KernelFn, Place, Stmt};
 
 /// Every gap decline's reason starts with this, so a consumer can tell "outside the target" from "not taught yet".
@@ -12,6 +12,12 @@ pub const GAP_PREFIX: &str = "slang target gap: ";
 /// The first gap `kernel` uses, as a reason (without the prefix), or `None`.
 pub(crate) fn first_gap(kernel: &KernelFn) -> Option<String> {
     for a in &kernel.allocs {
+        if a.space == MemorySpace::Tensor {
+            return Some(format!(
+                "tensor-memory allocation (`{}`, tcgen05): NVIDIA tensor memory has no Vulkan spelling",
+                a.name
+            ));
+        }
         if matches!(a.extent, Extent::Param(_)) {
             return Some(format!(
                 "run-time dynamic shared extent (`{}`): the extent must be a compile-time constant",
@@ -76,8 +82,28 @@ fn stmt_gap(s: &Stmt) -> Option<String> {
         | Stmt::CopyBulk { .. } => Some(
             "mbarrier statement (MbarInit/MbarArrive/MbarCompleteTx/MbarWait/CopyBulk): declined by name, possible exposure, board 434 C extended, see docs/PATENT_SWEEP.md".into(),
         ),
+        // CopyUnpack (unpopped 0.58.0): patent-class decline, board 434 C. It completes on an mbarrier, and unpopped
+        // v0.58.0 kernel.rs:1095 says "the patent note on Stmt::CopyBulk applies; emitters for other manufacturers
+        // decline it". Not a PATENT_SWEEP row by name; the basis is that doc line. Slang to SPIR-V is non-NVIDIA.
+        Stmt::CopyUnpack { .. } => Some(
+            "CopyUnpack statement: FP4 unpack copy completing on an mbarrier; declined by name, possible exposure, board 434 C (unpopped 0.58.0 kernel.rs: the CopyBulk patent note applies), see docs/PATENT_SWEEP.md".into(),
+        ),
         Stmt::WgmmaWait { .. } | Stmt::Tcgen05Commit { .. } => Some(
             "pending-matrix-multiply wait (WgmmaWait/Tcgen05Commit): declined by name, possible exposure, board 434 C extended, see docs/PATENT_SWEEP.md".into(),
+        ),
+        // U8c (unpopped 0.57.0): NVIDIA-only constructs with no Vulkan spelling, outside the target for good.
+        Stmt::ProxyFence { .. } => Some(
+            "ProxyFence statement: Vulkan compute has a single memory proxy and no async-proxy operation to order".into(),
+        ),
+        Stmt::Wgmma { .. } | Stmt::WgmmaCommit => Some(
+            "Wgmma statement (Wgmma/WgmmaCommit): NVIDIA warpgroup matrix multiply, no Vulkan spelling".into(),
+        ),
+        Stmt::Tcgen05Mma { .. }
+        | Stmt::Tcgen05Ld { .. }
+        | Stmt::Tcgen05Alloc { .. }
+        | Stmt::Tcgen05Dealloc { .. }
+        | Stmt::Tcgen05RelinquishPermit => Some(
+            "Tcgen05 statement (Tcgen05Mma/Tcgen05Ld/Tcgen05Alloc/Tcgen05Dealloc/Tcgen05RelinquishPermit): NVIDIA tensor-memory matrix multiply, no Vulkan spelling".into(),
         ),
         Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => Some(
             "collective statement (Reduce/Scan/Shuffle/Vote/Broadcast, tuple forms): declined by name, patent risk, see docs/PATENT_SWEEP.md".into(),
