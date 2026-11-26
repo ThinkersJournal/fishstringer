@@ -30,6 +30,7 @@ kiss-vulkan-vocab = "0.6.0"
 # The conformance cells (tests/) compare against the C reference emitter.
 unpopped-cpu-c = "0.59.1"
 unpopped-convert = "0.59.1"
+unpopped = { version = "0.59.1", features = ["fixtures"] }
 # The slangc test writes its sources into a private, auto-removed directory.
 tempfile       = "3.27"
 serde_json     = "1"
