@@ -1,0 +1,3 @@
+kind: changed
+---
+Take unpopped 0.58.0 (BREAKING upstream): `fishstringer-slang-emit`, `-parse` and `-kernels-source` now require unpopped, unpopped-vocab, unpopped-convert and unpopped-cpu-c 0.58.0. The new statements `Tcgen05Alloc`, `Tcgen05Dealloc`, `Tcgen05RelinquishPermit` are declined by name as target gaps (NVIDIA tensor memory, no Vulkan spelling), and `CopyUnpack` joins the patent-flagged mbarrier/bulk-copy decline (board 434 C). Test fixtures carry the new `Wgmma.a_regs` and `Tcgen05Mma.m/d_lane/b_ty/negate_*` fields; each new decline is pinned by a checker-valid-shaped case and mutant-checked (removing the `Tcgen05Alloc` gap arm fails the test).

@@ -698,7 +698,8 @@ fn stmts(
             | Stmt::MbarArrive { .. }
             | Stmt::MbarCompleteTx { .. }
             | Stmt::MbarWait { .. }
-            | Stmt::CopyBulk { .. } => {
+            | Stmt::CopyBulk { .. }
+            | Stmt::CopyUnpack { .. } => {
                 return Err(no(
                     kernel,
                     "an mbarrier statement (declined by name, docs/PATENT_SWEEP.md)",
@@ -720,10 +721,14 @@ fn stmts(
             // checker enforces it), and `gaps.rs` and the allocation match decline `Tensor` first. The same holds for
             // Wgmma/WgmmaCommit/ProxyFence (declined in `gaps.rs`), so those arms are kept only so that a new variant
             // still breaks this match at compile time. `u8c_decline_sites_are_reached` pins which site fires.
-            Stmt::Tcgen05Mma { .. } | Stmt::Tcgen05Ld { .. } => {
+            Stmt::Tcgen05Mma { .. }
+            | Stmt::Tcgen05Ld { .. }
+            | Stmt::Tcgen05Alloc { .. }
+            | Stmt::Tcgen05Dealloc { .. }
+            | Stmt::Tcgen05RelinquishPermit => {
                 return Err(no(
                     kernel,
-                    "a Tcgen05 statement (U8c, unpopped 0.57.0): NVIDIA tensor-memory matrix multiply, no Vulkan spelling",
+                    "a Tcgen05 statement (U8c, unpopped 0.58.0): NVIDIA tensor-memory matrix multiply, no Vulkan spelling",
                 ));
             }
             Stmt::WgmmaWait { .. } | Stmt::Tcgen05Commit { .. } => {

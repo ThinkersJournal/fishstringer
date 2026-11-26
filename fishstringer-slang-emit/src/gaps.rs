@@ -79,8 +79,9 @@ fn stmt_gap(s: &Stmt) -> Option<String> {
         | Stmt::MbarArrive { .. }
         | Stmt::MbarCompleteTx { .. }
         | Stmt::MbarWait { .. }
-        | Stmt::CopyBulk { .. } => Some(
-            "mbarrier statement (MbarInit/MbarArrive/MbarCompleteTx/MbarWait/CopyBulk): declined by name, possible exposure, board 434 C extended, see docs/PATENT_SWEEP.md".into(),
+        | Stmt::CopyBulk { .. }
+        | Stmt::CopyUnpack { .. } => Some(
+            "mbarrier statement (MbarInit/MbarArrive/MbarCompleteTx/MbarWait/CopyBulk/CopyUnpack): declined by name, possible exposure, board 434 C extended, see docs/PATENT_SWEEP.md".into(),
         ),
         Stmt::WgmmaWait { .. } | Stmt::Tcgen05Commit { .. } => Some(
             "pending-matrix-multiply wait (WgmmaWait/Tcgen05Commit): declined by name, possible exposure, board 434 C extended, see docs/PATENT_SWEEP.md".into(),
@@ -92,8 +93,12 @@ fn stmt_gap(s: &Stmt) -> Option<String> {
         Stmt::Wgmma { .. } | Stmt::WgmmaCommit => Some(
             "Wgmma statement (Wgmma/WgmmaCommit): NVIDIA warpgroup matrix multiply, no Vulkan spelling".into(),
         ),
-        Stmt::Tcgen05Mma { .. } | Stmt::Tcgen05Ld { .. } => Some(
-            "Tcgen05 statement (Tcgen05Mma/Tcgen05Ld): NVIDIA tensor-memory matrix multiply, no Vulkan spelling".into(),
+        Stmt::Tcgen05Mma { .. }
+        | Stmt::Tcgen05Ld { .. }
+        | Stmt::Tcgen05Alloc { .. }
+        | Stmt::Tcgen05Dealloc { .. }
+        | Stmt::Tcgen05RelinquishPermit => Some(
+            "Tcgen05 statement (Tcgen05Mma/Tcgen05Ld/Tcgen05Alloc/Tcgen05Dealloc/Tcgen05RelinquishPermit): NVIDIA tensor-memory matrix multiply, no Vulkan spelling".into(),
         ),
         Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => Some(
             "collective statement (Reduce/Scan/Shuffle/Vote/Broadcast, tuple forms): declined by name, patent risk, see docs/PATENT_SWEEP.md".into(),
