@@ -105,7 +105,7 @@ void main(uint3 gid : SV_DispatchThreadID)
         case OP_RELU:    y = isnan(x) ? x : max(x, 0.0f); break;   // NaN propagates (FMax would drop it)
         case OP_STEP:    y = x > 0.0f ? 1.0f : 0.0f; break;
         case OP_ABS:     y = abs(x); break;
-        case OP_SIGN:    y = sign(x); break;
+        case OP_SIGN:    y = isnan(x) ? 0.0f : sign(x); break;
         case OP_RECIP:   y = 1.0f / x; break;
         default:         y = x; break;
     }

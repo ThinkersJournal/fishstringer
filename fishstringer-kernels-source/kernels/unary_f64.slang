@@ -352,7 +352,7 @@ void main(uint3 gid : SV_DispatchThreadID)
     } else if (op == 13u) {
         y = abs(x);                                              // Abs
     } else if (op == 14u) {
-        y = sign(x);                                             // Sign
+        y = isnan(x) ? 0.0L : sign(x);                                             // Sign
     } else {
         y = 1.0L / x;                                            // Recip
     }
