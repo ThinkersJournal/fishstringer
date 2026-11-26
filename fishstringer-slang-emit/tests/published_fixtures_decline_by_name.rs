@@ -161,15 +161,16 @@ fn exclusive_and_inclusive_scans_decline_by_name() {
     // unpopped 0.58.4 added exclusive Max/Min/Prod scans; the whole family is the collective gap, never a lowering.
     for op in [ReduceOp::Sum, ReduceOp::Max, ReduceOp::Min, ReduceOp::Prod] {
         for exclusive in [false, true] {
-            let k = collective_with(CollectiveKind::Scan {
-                op: op.clone(),
-                exclusive,
-            });
-            check_kernel(&k).unwrap_or_else(|e| panic!("{op:?} exclusive={exclusive}: not valid: {e:?}"));
+            let k = collective_with(CollectiveKind::Scan { op, exclusive });
+            check_kernel(&k)
+                .unwrap_or_else(|e| panic!("{op:?} exclusive={exclusive}: not valid: {e:?}"));
             let Err(LowerError::UnsupportedKernel { detail }) = Slang.lower_kernel(&k) else {
                 panic!("{op:?} exclusive={exclusive}: not a typed decline");
             };
-            assert!(detail.starts_with(GAP_PREFIX), "{op:?} exclusive={exclusive}: {detail}");
+            assert!(
+                detail.starts_with(GAP_PREFIX),
+                "{op:?} exclusive={exclusive}: {detail}"
+            );
             assert!(detail.contains("collective statement"), "{detail}");
         }
     }
