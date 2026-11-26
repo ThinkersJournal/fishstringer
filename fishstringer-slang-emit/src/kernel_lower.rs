@@ -287,6 +287,25 @@ fn truth(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
     Ok(if is_bool(e) { s } else { format!("({s} != 0)") })
 }
 
+/// What the lowering writes for a subgroup collective.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub(crate) enum Mode {
+    /// Every collective declines (the default entry points).
+    #[default]
+    Slang,
+    /// HLSL wave intrinsics inside a `__target_switch { case hlsl: }` (valid Slang only; fails for every other target).
+    Hlsl,
+    /// The same intrinsics, called directly, with no guard: plain HLSL for a consumer that adds its own guards. Safe only
+    /// where nothing but an HLSL compiler reads it.
+    HlslPlain,
+}
+
+impl Mode {
+    pub(crate) fn is_hlsl(self) -> bool {
+        self != Self::Slang
+    }
+}
+
 #[derive(Default)]
 struct Cx {
     /// Locals a `Let`, `Load`, `MaskedLoad` or `For` declares, in first-seen order.
@@ -299,7 +318,10 @@ struct Cx {
     ret: Option<String>,
     /// True on the explicit HLSL entry points (`Slang::lower_kernel_hlsl`): a subgroup `Collective` lowers, inside a
     /// `__target_switch` that has only `case hlsl`, so a non-HLSL compile of the text fails. Everywhere else a collective declines.
-    hlsl: bool,
+    hlsl: Mode,
+    /// The subgroup size `n` the launch states (`min == max`), set on an HLSL entry that has a collective: the emitted
+    /// `[WaveSize(n)]` makes the device run waves of exactly `n` lanes, so `n` is spelled as a literal in the shuffles.
+    wave: Option<u32>,
 }
 
 /// What a call site needs to know about the module: each function's Slang name and whether it returns a value, and each
@@ -316,10 +338,44 @@ struct ModInfo {
     generic: BTreeSet<(u32, usize)>,
 }
 
+/// Whether `b` holds a `Collective` statement (nested blocks included).
+fn has_collective(b: &Block) -> bool {
+    b.0.iter().any(|st| match st {
+        Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => true,
+        Stmt::If { then, els, .. } => has_collective(then) || has_collective(els),
+        Stmt::For { body, .. } | Stmt::While { body, .. } => has_collective(body),
+        _ => false,
+    })
+}
+
+/// The subgroup size an HLSL kernel with a collective must state: `launch.subgroup` with `min == max`, a power of two from 4
+/// to 128 (the sizes of HLSL's `[WaveSize]` attribute; shader model 6.6, which dxc and the driver must accept: UNVERIFIED on a
+/// device). HLSL waves are 32 or 64 lanes and not fixed, the oracle's `n` is the launch's, so a kernel that does not say
+/// exactly one size is declined rather than guessed.
+fn hlsl_wave_size(kernel: &KernelFn) -> Result<u32, LowerError> {
+    let sg = kernel.launch.as_ref().and_then(|l| l.subgroup);
+    match sg {
+        Some(r) if r.min == r.max && r.min.is_power_of_two() && (4..=128).contains(&r.min) => {
+            Ok(r.min)
+        }
+        Some(_) => Err(no(
+            kernel,
+            "a collective whose launch states a subgroup size that is not one power of two in 4..=128 (HLSL [WaveSize])",
+        )),
+        None => Err(no(
+            kernel,
+            "a collective in a launch that states no subgroup size (HLSL waves are 32 or 64; the oracle's n is the launch's: use LaunchShape::with_subgroup(n, n))",
+        )),
+    }
+}
+
 /// A subgroup collective as HLSL wave intrinsics (board 506), wrapped in a `__target_switch` with `case hlsl` and **no default**:
 /// slangc then refuses the text for every other target (SPIR-V, GLSL, Metal, WGSL, CUDA), so this does not lift the SPIR-V and
-/// GLSL declines by the back door. The semantics follow the unpopped oracle (`oracle/kernel_collective.rs`): `Idx`/`Broadcast`
-/// read lane `operand mod n`; `Up`/`Down`/`Xor` keep the lane's own value when the source lane does not exist.
+/// GLSL declines by the back door. `wave` is the launch's subgroup size `n`, a literal here and enforced by the entry's
+/// `[WaveSize(n)]`. The semantics follow the unpopped oracle (`oracle/kernel_collective.rs`): `Idx`/`Broadcast` read lane
+/// `operand mod n` (a non-negative remainder, also for a negative `I32` operand); `Up` reads lane `i - operand`, `Down`
+/// `i + operand`, `Xor` `i ^ operand`, and a lane whose source is outside `0..n` keeps its own value. An unsigned operand is
+/// compared in `uint` so a huge value cannot wrap into range.
 /// Lowered: `Reduce` of Sum/Prod/Max/Min/And/Or/Xor over `I32`/`U32`/`F32` (a float Max/Min declines: HLSL's NaN rule is
 /// UNMEASURED here, and the IR's is NaN-propagating), `Shuffle`, `Vote` All/Any (a `U32` 0/1), `Broadcast`.
 fn hlsl_collective(
@@ -328,16 +384,38 @@ fn hlsl_collective(
     value: &ScalarExpr,
     result: u32,
     scope: Scope,
+    wave: Option<u32>,
+    plain: bool,
     p: &str,
 ) -> Result<String, LowerError> {
     if scope != Scope::Subgroup {
         return Err(no(kernel, "a collective that is not at subgroup scope"));
     }
+    let Some(n) = wave else {
+        return Err(no(
+            kernel,
+            "a collective with no launch-stated subgroup size (HLSL lowering)",
+        ));
+    };
     let rty = local_ty(kernel, result)?;
     let rel = kernel.locals[result as usize].elem;
     let v = spell(kernel, value)?;
     let lane = "WaveGetLaneIndex()";
-    let n = "WaveGetLaneCount()";
+    // `Idx`/`Broadcast`: lane `operand mod n`; `(src_valid, src)` for Up/Down/Xor.
+    let operand_ty = |e: &ScalarExpr| match expr_ty(kernel, e) {
+        Some(t @ (ElementKind::I32 | ElementKind::U32)) => Ok(t),
+        _ => Err(no(
+            kernel,
+            "a shuffle or broadcast lane operand that is not an I32/U32 expression of known type (HLSL lowering)",
+        )),
+    };
+    let modn = |e: &ScalarExpr| -> Result<String, LowerError> {
+        let o = spell(kernel, e)?;
+        Ok(match operand_ty(e)? {
+            ElementKind::U32 => format!("((uint)({o}) % {n}u)"),
+            _ => format!("(uint)((((int)({o}) % {n}) + {n}) % {n})"),
+        })
+    };
     let rhs = match kind {
         CollectiveKind::Vote(VoteKind::All) => {
             format!("WaveActiveAllTrue({}) ? 1u : 0u", truth(kernel, value)?)
@@ -368,31 +446,54 @@ fn hlsl_collective(
                 }
                 _ => return Err(no(kernel, "this collective Reduce op")),
             };
-            format!("{f}({v})")
+            // HLSL's `WaveActiveBit*` take `uint` only (dxc refuses an `int` argument at every shader model 6_0..6_9:
+            // measured by vulkane), so a signed value goes through `uint` and back; the bit pattern is unchanged.
+            if rel == ElementKind::I32 && f.starts_with("WaveActiveBit") {
+                format!("(int){f}((uint)({v}))")
+            } else {
+                format!("{f}({v})")
+            }
         }
-        CollectiveKind::Broadcast { lane: l } => {
-            let l = spell(kernel, l)?;
-            format!("WaveReadLaneAt({v}, (uint)((((int)({l}) % (int){n}) + (int){n}) % (int){n}))")
-        }
+        CollectiveKind::Broadcast { lane: l } => format!("WaveReadLaneAt({v}, {})", modn(l)?),
         CollectiveKind::Shuffle { mode, operand } => {
-            let o = spell(kernel, operand)?;
-            let src = match mode {
-                ShuffleMode::Idx => {
-                    return Ok(format!(
-                        "{p}__target_switch\n{p}{{\n{p}case hlsl:\n{p}    l{result} = WaveReadLaneAt({v}, (uint)((((int)({o}) % (int){n}) + (int){n}) % (int){n}));\n{p}    break;\n{p}}}\n"
-                    ));
-                }
-                ShuffleMode::Up => format!("(int){lane} - (int)({o})"),
-                ShuffleMode::Down => format!("(int){lane} + (int)({o})"),
-                ShuffleMode::Xor => format!("(int){lane} ^ (int)({o})"),
-                _ => return Err(no(kernel, "this shuffle mode")),
-            };
-            format!(
-                "(({src}) >= 0 && ({src}) < (int){n}) ? WaveReadLaneAt({v}, (uint)({src})) : {v}"
-            )
+            if *mode == ShuffleMode::Idx {
+                format!("WaveReadLaneAt({v}, {})", modn(operand)?)
+            } else {
+                let o = spell(kernel, operand)?;
+                let (valid, src) = match (operand_ty(operand)?, mode) {
+                    (ElementKind::U32, ShuffleMode::Up) => (
+                        format!("(uint)({o}) <= {lane}"),
+                        format!("{lane} - (uint)({o})"),
+                    ),
+                    (ElementKind::U32, ShuffleMode::Down) => (
+                        format!("(uint)({o}) < {n}u - {lane}"),
+                        format!("{lane} + (uint)({o})"),
+                    ),
+                    (ElementKind::U32, ShuffleMode::Xor) => (
+                        format!("({lane} ^ (uint)({o})) < {n}u"),
+                        format!("{lane} ^ (uint)({o})"),
+                    ),
+                    (_, m) => {
+                        let src = match m {
+                            ShuffleMode::Up => format!("(int){lane} - (int)({o})"),
+                            ShuffleMode::Down => format!("(int){lane} + (int)({o})"),
+                            ShuffleMode::Xor => format!("(int){lane} ^ (int)({o})"),
+                            _ => return Err(no(kernel, "this shuffle mode")),
+                        };
+                        (format!("({src}) >= 0 && ({src}) < {n}"), src)
+                    }
+                };
+                format!("({valid}) ? WaveReadLaneAt({v}, (uint)({src})) : {v}")
+            }
         }
         _ => return Err(no(kernel, "this collective kind (HLSL lowering)")),
     };
+    if plain {
+        return Ok(format!(
+            "{p}l{result} = ({rty})({rhs});
+"
+        ));
+    }
     Ok(format!(
         "{p}__target_switch\n{p}{{\n{p}case hlsl:\n{p}    l{result} = ({rty})({rhs});\n{p}    break;\n{p}}}\n"
     ))
@@ -772,9 +873,18 @@ fn stmts(
                 value,
                 result,
                 scope,
-            } if cx.hlsl => {
+            } if cx.hlsl.is_hlsl() => {
                 cx.declared.insert(*result);
-                out.push_str(&hlsl_collective(kernel, kind, value, *result, *scope, &p)?);
+                out.push_str(&hlsl_collective(
+                    kernel,
+                    kind,
+                    value,
+                    *result,
+                    *scope,
+                    cx.wave,
+                    cx.hlsl == Mode::HlslPlain,
+                    &p,
+                )?);
             }
             Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => {
                 return Err(no(
@@ -915,7 +1025,7 @@ fn place(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
 }
 
 /// Lower `kernel`, or say why not. Callers run the gap scan first.
-pub(crate) fn lower(kernel: &KernelFn, hlsl: bool) -> Result<GeneratedKernel, LowerError> {
+pub(crate) fn lower(kernel: &KernelFn, hlsl: Mode) -> Result<GeneratedKernel, LowerError> {
     check_kernel(kernel).map_err(|e| LowerError::UnsupportedKernel {
         detail: format!(
             "slang: the kernel-layer checker refuses kernel `{}`: {e:?}",
@@ -930,7 +1040,7 @@ fn lower_entry(
     kernel: &KernelFn,
     mcx: Option<std::rc::Rc<ModInfo>>,
     prelude: &str,
-    hlsl: bool,
+    hlsl: Mode,
 ) -> Result<GeneratedKernel, LowerError> {
     let Some(launch) = kernel.launch.as_ref() else {
         return Err(no(kernel, "a kernel with no launch"));
@@ -1064,9 +1174,15 @@ fn lower_entry(
         }
     }
     let [bx, by, bz] = launch.block;
+    let wave = if hlsl.is_hlsl() && has_collective(&kernel.body) {
+        Some(hlsl_wave_size(kernel)?)
+    } else {
+        None
+    };
+    let wave_attr = wave.map_or_else(String::new, |n| format!("[WaveSize({n})]\n"));
     s.push_str(prelude);
     s.push_str(&format!(
-        "[shader(\"compute\")]\n[numthreads({bx}, {by}, {bz})]\nvoid {entry}(uint3 tid_ : SV_GroupThreadID, uint3 bid_ : SV_GroupID, uint gi_ : SV_GroupIndex)\n{{\n"
+        "[shader(\"compute\")]\n{wave_attr}[numthreads({bx}, {by}, {bz})]\nvoid {entry}(uint3 tid_ : SV_GroupThreadID, uint3 bid_ : SV_GroupID, uint gi_ : SV_GroupIndex)\n{{\n"
     ));
     s.push_str(&prologue);
     s.push_str(&private);
@@ -1075,6 +1191,7 @@ fn lower_entry(
     let mut cx = Cx {
         module: mcx,
         hlsl,
+        wave,
         ..Cx::default()
     };
     let mut body = String::new();
@@ -1248,7 +1365,7 @@ fn lower_extern_asm(
 pub(crate) fn lower_module(
     m: &Module,
     entry: u32,
-    hlsl: bool,
+    hlsl: Mode,
 ) -> Result<GeneratedKernel, LowerError> {
     let Some(ek) = m.fns.get(entry as usize) else {
         return Err(LowerError::UnsupportedKernel {
@@ -1313,7 +1430,7 @@ pub(crate) fn lower_module(
     }
     for f in order {
         let k = &m.fns[f as usize];
-        if let Some(gap) = crate::gaps::first_gap(k, hlsl) {
+        if let Some(gap) = crate::gaps::first_gap(k, hlsl.is_hlsl()) {
             return Err(LowerError::UnsupportedKernel {
                 detail: format!("{}{gap} (kernel `{}`)", crate::gaps::GAP_PREFIX, k.name),
             });
@@ -1323,7 +1440,7 @@ pub(crate) fn lower_module(
         }
         prelude.push_str(&lower_callee(k, f, &mi, hlsl)?);
     }
-    if let Some(gap) = crate::gaps::first_gap(ek, hlsl) {
+    if let Some(gap) = crate::gaps::first_gap(ek, hlsl.is_hlsl()) {
         return Err(LowerError::UnsupportedKernel {
             detail: format!("{}{gap} (kernel `{}`)", crate::gaps::GAP_PREFIX, ek.name),
         });
@@ -1337,7 +1454,7 @@ fn lower_callee(
     k: &KernelFn,
     f: u32,
     mi: &std::rc::Rc<ModInfo>,
-    hlsl: bool,
+    hlsl: Mode,
 ) -> Result<String, LowerError> {
     if k.launch.is_some() || !k.allocs.is_empty() {
         return Err(no(k, "a callee with a launch or an allocation"));
