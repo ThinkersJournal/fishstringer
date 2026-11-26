@@ -1,3 +1,0 @@
-kind: take unpopped 0.59.1 (U63 uniformity guard): dependency line only
----
-`fishstringer-slang-emit` and `fishstringer-slang-parse` take `unpopped`, `unpopped-vocab`, `unpopped-cpu-c` and `unpopped-convert` 0.59.1 (0.58.0 before). Dependency lines and `Cargo.lock` only; no source change, nothing breaks for our consumers (the new `KernelError::CollectiveAfterReturn` is a unit variant of a `non_exhaustive` enum, and we have no wildcard-arm dependence). Verified: `cargo test --workspace --all-features` passes on every test target (0 failures), including `fuzz.rs` and `backend_declines.rs` that baracuda's 0.59.1 bump was blocked on. This unblocks baracuda's dev-dep tests.
