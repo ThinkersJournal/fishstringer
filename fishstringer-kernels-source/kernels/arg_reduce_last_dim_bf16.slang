@@ -25,6 +25,15 @@ static const float F32_POS_INF =  3.402823e+38;
 
 float bf16_bits_to_f32(uint b) { return asfloat(b << 16u); }
 
+// NaN-aware "does v displace cur": a NaN wins (torch convention) and, once
+// the running best is a NaN, nothing but an earlier-index NaN displaces it.
+bool take_new(bool is_max, float v, float cur)
+{
+    if (isnan(v)) return !isnan(cur);
+    if (isnan(cur)) return false;
+    return is_max ? (v > cur) : (v < cur);
+}
+
 [shader("compute")]
 [numthreads(256, 1, 1)]
 void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
@@ -47,13 +56,8 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
         float v1 = bf16_bits_to_f32(packed >> 16u);
         uint i0 = pair * 2u;
         uint i1 = i0 + 1u;
-        if (is_max) {
-            if (v0 > best_v) { best_v = v0; best_i = i0; }
-            if (v1 > best_v) { best_v = v1; best_i = i1; }
-        } else {
-            if (v0 < best_v) { best_v = v0; best_i = i0; }
-            if (v1 < best_v) { best_v = v1; best_i = i1; }
-        }
+        if (take_new(is_max, v0, best_v)) { best_v = v0; best_i = i0; }
+        if (take_new(is_max, v1, best_v)) { best_v = v1; best_i = i1; }
     }
     wg_val[tid] = best_v;
     wg_idx[tid] = best_i;
@@ -65,9 +69,8 @@ void main(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
             uint other = tid + stride;
             float ov = wg_val[other];
             uint  oi = wg_idx[other];
-            bool take_other = is_max
-                ? (ov > wg_val[tid] || (ov == wg_val[tid] && oi < wg_idx[tid]))
-                : (ov < wg_val[tid] || (ov == wg_val[tid] && oi < wg_idx[tid]));
+            bool same = (ov == wg_val[tid]) || (isnan(ov) && isnan(wg_val[tid]));
+            bool take_other = take_new(is_max, ov, wg_val[tid]) || (same && oi < wg_idx[tid]);
             if (take_other) {
                 wg_val[tid] = ov;
                 wg_idx[tid] = oi;

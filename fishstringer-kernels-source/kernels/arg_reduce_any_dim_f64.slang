@@ -17,6 +17,15 @@ struct Params {
 static const double F64_NEG_INF = -1.7976931348623157e+308;
 static const double F64_POS_INF =  1.7976931348623157e+308;
 
+// NaN-aware "does v displace cur": a NaN wins (torch convention) and, once
+// the running best is a NaN, nothing but an earlier-index NaN displaces it.
+bool take_new(bool is_max, double v, double cur)
+{
+    if (isnan(v)) return !isnan(cur);
+    if (isnan(cur)) return false;
+    return is_max ? (v > cur) : (v < cur);
+}
+
 [shader("compute")]
 [numthreads(256, 1, 1)]
 void main(uint3 gid : SV_DispatchThreadID)
@@ -35,7 +44,7 @@ void main(uint3 gid : SV_DispatchThreadID)
 
     for (uint i = 0u; i < p.d_dim; i++) {
         double v = input[base + i * p.n_inner];
-        bool better = is_max ? (v > best_v) : (v < best_v);
+        bool better = take_new(is_max, v, best_v);
         if (better) {
             best_v = v;
             best_i = i;
