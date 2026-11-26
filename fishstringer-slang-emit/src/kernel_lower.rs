@@ -781,7 +781,19 @@ fn place(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
         return Ok(format!("a{alloc}[{}]", spell(kernel, index)?));
     }
     let Place::Logical { buffer, coords } = p else {
-        return Err(no(kernel, "this place"));
+        // `Place` is `#[non_exhaustive]`, so a residual arm must stay; the byte-addressed places of unpopped 0.57 are
+        // named so a decline says which one and why.
+        return Err(match p {
+            Place::Raw { .. } => no(
+                kernel,
+                "a Place::Raw (byte-addressed buffer access; Slang's StructuredBuffer is element-indexed)",
+            ),
+            Place::AllocRaw { .. } => no(
+                kernel,
+                "a Place::AllocRaw (byte-addressed allocation access)",
+            ),
+            _ => no(kernel, "this place"),
+        });
     };
     // The entry reads strides/base from the params block; a callee (no launch) takes them as function parameters.
     let pre = if kernel.launch.is_some() { "pb_." } else { "" };

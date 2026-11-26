@@ -452,3 +452,119 @@ fn proxy_fence_declines_by_name() {
     assert!(d.contains("ProxyFence") && d.contains("0.57.0"), "{d}");
     assert!(!decline(&empty()).contains("ProxyFence"));
 }
+
+/// unpopped 0.57.0 (U8c) parity: every NVIDIA async-proxy statement and byte-addressed place is a typed
+/// `UnsupportedKernel` that names it, never the generic "this statement"/"this place". Control: a kernel that stores
+/// through a `Place::Alloc` lowers past this point (its decline, if any, does not name any of these).
+#[test]
+fn u8c_statements_and_byte_places_decline_by_name() {
+    use unpopped::exec::LaunchShape;
+    use unpopped::ir::ScalarExpr;
+    use unpopped::kernel::{BufferRole, OperandLayout, Param, Place};
+    let z = || ScalarExpr::Const(0.0);
+    let pl = || Place::Logical {
+        buffer: 0,
+        coords: vec![],
+    };
+    let cases: Vec<(Stmt, &str)> = vec![
+        (
+            Stmt::Wgmma {
+                n: 8,
+                ab: ElementKind::F16,
+                acc: ElementKind::F32,
+                a: pl(),
+                b: pl(),
+                d: 0,
+                scale_d: z(),
+                a_layout: OperandLayout::RowMajor,
+                b_layout: OperandLayout::RowMajor,
+            },
+            "Wgmma",
+        ),
+        (Stmt::WgmmaCommit, "Wgmma"),
+        (
+            Stmt::Tcgen05Mma {
+                n: 8,
+                ab: ElementKind::F16,
+                acc: ElementKind::F32,
+                a: pl(),
+                b: pl(),
+                d: 0,
+                d_col: z(),
+                scale_d: z(),
+                a_layout: OperandLayout::RowMajor,
+                b_layout: OperandLayout::RowMajor,
+            },
+            "Tcgen05",
+        ),
+        (
+            Stmt::Tcgen05Ld {
+                src: 0,
+                col: z(),
+                count: 1,
+                dst: 0,
+            },
+            "Tcgen05",
+        ),
+        (
+            Stmt::Load {
+                local: 0,
+                place: Place::Raw {
+                    buffer: 0,
+                    byte_offset: ScalarExpr::ConstInt(0, ElementKind::I32),
+                    elem: ElementKind::F32,
+                },
+            },
+            "Place::Raw",
+        ),
+        (
+            Stmt::Load {
+                local: 0,
+                place: Place::AllocRaw {
+                    alloc: 0,
+                    byte_offset: ScalarExpr::ConstInt(0, ElementKind::I32),
+                    elem: ElementKind::F32,
+                },
+            },
+            "Place::AllocRaw",
+        ),
+    ];
+    for (st, what) in cases {
+        let mut k = KernelFn::new(
+            "k",
+            ElementKind::F32,
+            vec![Param::buffer(
+                "b",
+                ElementKind::F32,
+                BufferRole::ReadWrite,
+                Some(1),
+            )],
+            vec![unpopped::kernel::LocalDecl::scalar(ElementKind::F32)],
+            Block(vec![]),
+        )
+        .with_allocs(vec![AllocDecl::new(
+            "s",
+            MemorySpace::Shared,
+            ElementKind::F32,
+            Extent::Static(4),
+        )])
+        .with_launch(LaunchShape::new([1, 1, 1], [1, 1, 1]));
+        k.body.0.push(st);
+        let d = decline(&k);
+        assert!(d.contains(what), "{what}: {d}");
+        assert!(
+            !d.contains("this statement") && !d.contains("this place"),
+            "{d}"
+        );
+    }
+    let mut ok = empty().with_launch(LaunchShape::new([1, 1, 1], [1, 1, 1]));
+    ok.body.0.push(Stmt::Return);
+    let d = Slang
+        .lower_kernel(&ok)
+        .map(|_| String::new())
+        .unwrap_or_else(|e| format!("{e:?}"));
+    assert!(
+        !d.contains("Wgmma") && !d.contains("Tcgen05") && !d.contains("Place::"),
+        "{d}"
+    );
+}

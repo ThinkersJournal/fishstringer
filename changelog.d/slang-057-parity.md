@@ -1,0 +1,3 @@
+kind: Slang declines name every unpopped 0.57 U8c statement and byte place
+---
+`Place::Raw` and `Place::AllocRaw` now decline with their own reason instead of "this place" (`Place` is `#[non_exhaustive]`, so a residual arm stays). New test `u8c_statements_and_byte_places_decline_by_name` covers `Wgmma`, `WgmmaCommit`, `Tcgen05Mma`, `Tcgen05Ld`, `Place::Raw` and `Place::AllocRaw` (each must name itself and never say "this statement"/"this place"), with a control kernel. Mutation check: with the `Place` arms reverted the test fails on `Place::Raw` ("this place is not lowered yet"). Workspace test, clippy `-D warnings`, fmt green.
