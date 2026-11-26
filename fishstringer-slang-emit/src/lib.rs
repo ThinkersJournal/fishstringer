@@ -322,7 +322,43 @@ impl Slang {
         module: &unpopped::kernel::Module,
         entry: u32,
     ) -> Result<GeneratedKernel, LowerError> {
-        kernel_lower::lower_module(module, entry)
+        kernel_lower::lower_module(module, entry, false)
+    }
+
+    /// [`Slang::lower_module`] for an HLSL consumer (board 506): a subgroup `Collective` of a kind listed on
+    /// [`Slang::lower_kernel_hlsl`] lowers to HLSL wave intrinsics.
+    ///
+    /// # Errors
+    ///
+    /// [`LowerError::UnsupportedKernel`] as for [`Slang::lower_module`].
+    pub fn lower_module_hlsl(
+        &self,
+        module: &unpopped::kernel::Module,
+        entry: u32,
+    ) -> Result<GeneratedKernel, LowerError> {
+        kernel_lower::lower_module(module, entry, true)
+    }
+
+    /// [`Backend::lower_kernel`] for an **HLSL** consumer (board 506, `docs/PATENT_SWEEP.md`): a `Subgroup`-scope
+    /// `Collective` lowers to HLSL wave intrinsics instead of declining. Lowered: `Reduce` of Sum/Prod/Max/Min/And/Or/Xor
+    /// over `I32`/`U32`/`F32` (float Max/Min decline: unmeasured NaN rule), `Shuffle` (all four modes), `Vote` All/Any, and
+    /// `Broadcast`. Still declined by name: `Scan`, `ReduceWith`/`ScanWith`, `CollectiveTuple`, `Vote` Ballot and every
+    /// collective at `Block` scope.
+    ///
+    /// **HLSL only.** The emitted text is target-agnostic Slang, so each collective sits in a `__target_switch` with
+    /// `case hlsl` and no default: `slangc -target spirv` (and glsl, metal, wgsl, cuda) fails on it, so the SPIR-V and GLSL
+    /// declines stay in force. [`Slang::lower_kernel`](Backend::lower_kernel) is unchanged and still declines every collective.
+    ///
+    /// # Errors
+    ///
+    /// [`LowerError::UnsupportedKernel`] as for `lower_kernel`.
+    pub fn lower_kernel_hlsl(&self, kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
+        if let Some(gap) = gaps::first_gap(kernel, true) {
+            return Err(LowerError::UnsupportedKernel {
+                detail: format!("{}{gap} (kernel `{}`)", gaps::GAP_PREFIX, kernel.name),
+            });
+        }
+        kernel_lower::lower(kernel, true)
     }
 }
 
@@ -337,12 +373,12 @@ impl Backend for Slang {
 
     fn lower_kernel(&self, kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
         // Gaps first: a construct outside the target is named, not lumped in with "not taught yet" (row E18).
-        if let Some(gap) = gaps::first_gap(kernel) {
+        if let Some(gap) = gaps::first_gap(kernel, false) {
             return Err(LowerError::UnsupportedKernel {
                 detail: format!("{}{gap} (kernel `{}`)", gaps::GAP_PREFIX, kernel.name),
             });
         }
-        kernel_lower::lower(kernel)
+        kernel_lower::lower(kernel, false)
     }
     fn supports_dtype(&self, dtype: ElementKind, target: TargetId) -> DtypeSupport {
         dtype_ok(dtype, target)

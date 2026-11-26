@@ -62,10 +62,10 @@ use std::collections::BTreeSet;
 use unpopped::backend::{GeneratedKernel, LowerError};
 use unpopped::exec::{ExecId, Extent, MemorySpace, Scope};
 
-use unpopped::ir::{BinaryOp, RoundMode, Saturation, ScalarExpr};
+use unpopped::ir::{BinaryOp, ReduceOp, RoundMode, Saturation, ScalarExpr};
 use unpopped::kernel::{
-    AtomicOp, Block, BodyText, BufferRole, CallArg, KernelFn, Module, ParamKind, Place, Stmt,
-    check_kernel, check_module,
+    AtomicOp, Block, BodyText, BufferRole, CallArg, CollectiveKind, KernelFn, Module, ParamKind,
+    Place, ShuffleMode, Stmt, VoteKind, check_kernel, check_module,
 };
 use unpopped::kernel_interface::{Binding, KernelInterface, ParamsBlock, ParamsBlockField};
 use unpopped_vocab::ElementKind;
@@ -297,6 +297,9 @@ struct Cx {
     module: Option<std::rc::Rc<ModInfo>>,
     /// What a `Return` returns in a callee with a result (`l<r>`); `None` in an entry and a void callee.
     ret: Option<String>,
+    /// True on the explicit HLSL entry points (`Slang::lower_kernel_hlsl`): a subgroup `Collective` lowers, inside a
+    /// `__target_switch` that has only `case hlsl`, so a non-HLSL compile of the text fails. Everywhere else a collective declines.
+    hlsl: bool,
 }
 
 /// What a call site needs to know about the module: each function's Slang name and whether it returns a value, and each
@@ -311,6 +314,88 @@ struct ModInfo {
     /// `(callee, parameter)` pairs that some call passes an allocation to: the callee takes that buffer as a generic
     /// `IRWArray<T>` (a `groupshared` or local array is not a `RWStructuredBuffer`).
     generic: BTreeSet<(u32, usize)>,
+}
+
+/// A subgroup collective as HLSL wave intrinsics (board 506), wrapped in a `__target_switch` with `case hlsl` and **no default**:
+/// slangc then refuses the text for every other target (SPIR-V, GLSL, Metal, WGSL, CUDA), so this does not lift the SPIR-V and
+/// GLSL declines by the back door. The semantics follow the unpopped oracle (`oracle/kernel_collective.rs`): `Idx`/`Broadcast`
+/// read lane `operand mod n`; `Up`/`Down`/`Xor` keep the lane's own value when the source lane does not exist.
+/// Lowered: `Reduce` of Sum/Prod/Max/Min/And/Or/Xor over `I32`/`U32`/`F32` (a float Max/Min declines: HLSL's NaN rule is
+/// UNMEASURED here, and the IR's is NaN-propagating), `Shuffle`, `Vote` All/Any (a `U32` 0/1), `Broadcast`.
+fn hlsl_collective(
+    kernel: &KernelFn,
+    kind: &CollectiveKind,
+    value: &ScalarExpr,
+    result: u32,
+    scope: Scope,
+    p: &str,
+) -> Result<String, LowerError> {
+    if scope != Scope::Subgroup {
+        return Err(no(kernel, "a collective that is not at subgroup scope"));
+    }
+    let rty = local_ty(kernel, result)?;
+    let rel = kernel.locals[result as usize].elem;
+    let v = spell(kernel, value)?;
+    let lane = "WaveGetLaneIndex()";
+    let n = "WaveGetLaneCount()";
+    let rhs = match kind {
+        CollectiveKind::Vote(VoteKind::All) => {
+            format!("WaveActiveAllTrue({}) ? 1u : 0u", truth(kernel, value)?)
+        }
+        CollectiveKind::Vote(VoteKind::Any) => {
+            format!("WaveActiveAnyTrue({}) ? 1u : 0u", truth(kernel, value)?)
+        }
+        _ if !matches!(rel, ElementKind::I32 | ElementKind::U32 | ElementKind::F32) => {
+            return Err(no(
+                kernel,
+                "a collective over a value type other than I32/U32/F32 (HLSL lowering)",
+            ));
+        }
+        CollectiveKind::Reduce(op) => {
+            let f = match (op, is_float_ty(rel)) {
+                (ReduceOp::Sum, _) => "WaveActiveSum",
+                (ReduceOp::Prod, _) => "WaveActiveProduct",
+                (ReduceOp::Max, false) => "WaveActiveMax",
+                (ReduceOp::Min, false) => "WaveActiveMin",
+                (ReduceOp::And, false) => "WaveActiveBitAnd",
+                (ReduceOp::Or, false) => "WaveActiveBitOr",
+                (ReduceOp::Xor, false) => "WaveActiveBitXor",
+                (ReduceOp::Max | ReduceOp::Min, true) => {
+                    return Err(no(
+                        kernel,
+                        "a float Reduce Max/Min collective (NaN rule of the HLSL intrinsic is unmeasured; the IR's is NaN-propagating)",
+                    ));
+                }
+                _ => return Err(no(kernel, "this collective Reduce op")),
+            };
+            format!("{f}({v})")
+        }
+        CollectiveKind::Broadcast { lane: l } => {
+            let l = spell(kernel, l)?;
+            format!("WaveReadLaneAt({v}, (uint)((((int)({l}) % (int){n}) + (int){n}) % (int){n}))")
+        }
+        CollectiveKind::Shuffle { mode, operand } => {
+            let o = spell(kernel, operand)?;
+            let src = match mode {
+                ShuffleMode::Idx => {
+                    return Ok(format!(
+                        "{p}__target_switch\n{p}{{\n{p}case hlsl:\n{p}    l{result} = WaveReadLaneAt({v}, (uint)((((int)({o}) % (int){n}) + (int){n}) % (int){n}));\n{p}    break;\n{p}}}\n"
+                    ));
+                }
+                ShuffleMode::Up => format!("(int){lane} - (int)({o})"),
+                ShuffleMode::Down => format!("(int){lane} + (int)({o})"),
+                ShuffleMode::Xor => format!("(int){lane} ^ (int)({o})"),
+                _ => return Err(no(kernel, "this shuffle mode")),
+            };
+            format!(
+                "(({src}) >= 0 && ({src}) < (int){n}) ? WaveReadLaneAt({v}, (uint)({src})) : {v}"
+            )
+        }
+        _ => return Err(no(kernel, "this collective kind (HLSL lowering)")),
+    };
+    Ok(format!(
+        "{p}__target_switch\n{p}{{\n{p}case hlsl:\n{p}    l{result} = ({rty})({rhs});\n{p}    break;\n{p}}}\n"
+    ))
 }
 
 fn pad(ind: usize) -> String {
@@ -682,6 +767,15 @@ fn stmts(
                     "a grid-dependency statement (GridDepWait/GridDepLaunchDependents)",
                 ));
             }
+            Stmt::Collective {
+                kind,
+                value,
+                result,
+                scope,
+            } if cx.hlsl => {
+                cx.declared.insert(*result);
+                out.push_str(&hlsl_collective(kernel, kind, value, *result, *scope, &p)?);
+            }
             Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => {
                 return Err(no(
                     kernel,
@@ -821,14 +915,14 @@ fn place(kernel: &KernelFn, p: &Place) -> Result<String, LowerError> {
 }
 
 /// Lower `kernel`, or say why not. Callers run the gap scan first.
-pub(crate) fn lower(kernel: &KernelFn) -> Result<GeneratedKernel, LowerError> {
+pub(crate) fn lower(kernel: &KernelFn, hlsl: bool) -> Result<GeneratedKernel, LowerError> {
     check_kernel(kernel).map_err(|e| LowerError::UnsupportedKernel {
         detail: format!(
             "slang: the kernel-layer checker refuses kernel `{}`: {e:?}",
             kernel.name
         ),
     })?;
-    lower_entry(kernel, None, "")
+    lower_entry(kernel, None, "", hlsl)
 }
 
 /// The entry kernel, with `prelude` (the callee functions) ahead of the entry point and `mcx` to resolve calls.
@@ -836,6 +930,7 @@ fn lower_entry(
     kernel: &KernelFn,
     mcx: Option<std::rc::Rc<ModInfo>>,
     prelude: &str,
+    hlsl: bool,
 ) -> Result<GeneratedKernel, LowerError> {
     let Some(launch) = kernel.launch.as_ref() else {
         return Err(no(kernel, "a kernel with no launch"));
@@ -979,6 +1074,7 @@ fn lower_entry(
     // the IR scopes a local by its declaring statement, the source declares it once where every use can see it.
     let mut cx = Cx {
         module: mcx,
+        hlsl,
         ..Cx::default()
     };
     let mut body = String::new();
@@ -1149,7 +1245,11 @@ fn lower_extern_asm(
 
 /// Lower the module's `entry` kernel with every function it reaches as a Slang function ahead of it (E16). The checker
 /// resolves the calls (no cycle, valid callees) first; the callees come out callee-first.
-pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, LowerError> {
+pub(crate) fn lower_module(
+    m: &Module,
+    entry: u32,
+    hlsl: bool,
+) -> Result<GeneratedKernel, LowerError> {
     let Some(ek) = m.fns.get(entry as usize) else {
         return Err(LowerError::UnsupportedKernel {
             detail: format!("slang: the module has no entry function {entry}"),
@@ -1213,7 +1313,7 @@ pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, Lo
     }
     for f in order {
         let k = &m.fns[f as usize];
-        if let Some(gap) = crate::gaps::first_gap(k) {
+        if let Some(gap) = crate::gaps::first_gap(k, hlsl) {
             return Err(LowerError::UnsupportedKernel {
                 detail: format!("{}{gap} (kernel `{}`)", crate::gaps::GAP_PREFIX, k.name),
             });
@@ -1221,19 +1321,24 @@ pub(crate) fn lower_module(m: &Module, entry: u32) -> Result<GeneratedKernel, Lo
         if f == entry {
             continue;
         }
-        prelude.push_str(&lower_callee(k, f, &mi)?);
+        prelude.push_str(&lower_callee(k, f, &mi, hlsl)?);
     }
-    if let Some(gap) = crate::gaps::first_gap(ek) {
+    if let Some(gap) = crate::gaps::first_gap(ek, hlsl) {
         return Err(LowerError::UnsupportedKernel {
             detail: format!("{}{gap} (kernel `{}`)", crate::gaps::GAP_PREFIX, ek.name),
         });
     }
-    lower_entry(ek, Some(mi), &prelude)
+    lower_entry(ek, Some(mi), &prelude, hlsl)
 }
 
 /// One callee as a Slang function `f<index>`: scalar parameters by value, the result local returned, no launch, no
 /// allocations, no 16-bit floats, no launch ids (a callee takes no hidden state).
-fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<String, LowerError> {
+fn lower_callee(
+    k: &KernelFn,
+    f: u32,
+    mi: &std::rc::Rc<ModInfo>,
+    hlsl: bool,
+) -> Result<String, LowerError> {
     if k.launch.is_some() || !k.allocs.is_empty() {
         return Err(no(k, "a callee with a launch or an allocation"));
     }
@@ -1308,6 +1413,7 @@ fn lower_callee(k: &KernelFn, f: u32, mi: &std::rc::Rc<ModInfo>) -> Result<Strin
     let mut cx = Cx {
         module: Some(mi.clone()),
         ret: ret_expr,
+        hlsl,
         ..Cx::default()
     };
     let mut body = String::new();
