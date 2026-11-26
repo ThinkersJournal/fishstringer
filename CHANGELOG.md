@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.6.0 — **BREAKING**: take unpopped 0.57.0; U8c statements decline by name
+
+`fishstringer-slang-emit` and `fishstringer-slang-parse` now depend on unpopped, unpopped-vocab, unpopped-cpu-c and unpopped-convert 0.57.0 (was 0.56.1), per docs/emitter-migration-u8c.md on unpopped. The statement lowering no longer has a wildcard arm: every `Stmt` variant is named, and `ProxyFence`, `Wgmma`, `WgmmaCommit`, `Tcgen05Mma` and `Tcgen05Ld` decline with `UnsupportedKernel` and a reason (Vulkan compute has no async proxy or tensor memory). Verified: `proxy_fence_declines_by_name` with an empty-kernel control; workspace test, clippy `-D warnings`, fmt and deny green; no kernel output changed.
+
 ## 0.5.0 — **BREAKING**: `VULKAN_ARITH_TOKENS` replaced by `vulkan_arith_tokens()` from the published `kiss-vulkan-vocab` 0.6.0
 
 `fishstringer-slang-emit` now depends on `kiss-vulkan-vocab` 0.6.0 (crates.io) instead of carrying a hand copy of its `<arith>` names. The const `VULKAN_ARITH_TOKENS` (vocabulary 6, copied at Vulkane `e55e7fbc`) is gone; `vulkan_arith_tokens() -> Vec<&'static str>` returns `Arith::alphabet()`, which is vocabulary 7 and so also names the atomics tokens `a64`, `af32` and `af64`. `lower_kernel` emits none of those yet; only the list a consumer checks against grew. Verified red-first: the new test `the_token_list_is_the_published_vocabulary_not_a_copy` (the three atomics names come from the crate, the list equals `Arith::alphabet()`, `VOCABULARY_VERSION` is 7) failed to compile before the change and passes after; the existing token and gate tests pass unchanged; workspace tests, clippy `-D warnings` and `cargo deny` are clean. Migration: replace `VULKAN_ARITH_TOKENS` with `&vulkan_arith_tokens()`.

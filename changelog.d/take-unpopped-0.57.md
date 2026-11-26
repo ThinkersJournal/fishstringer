@@ -1,3 +1,0 @@
-kind: **BREAKING**: take unpopped 0.57.0; U8c statements decline by name
----
-`fishstringer-slang-emit` and `fishstringer-slang-parse` now depend on unpopped, unpopped-vocab, unpopped-cpu-c and unpopped-convert 0.57.0 (was 0.56.1), per docs/emitter-migration-u8c.md on unpopped. The statement lowering no longer has a wildcard arm: every `Stmt` variant is named, and `ProxyFence`, `Wgmma`, `WgmmaCommit`, `Tcgen05Mma` and `Tcgen05Ld` decline with `UnsupportedKernel` and a reason (Vulkan compute has no async proxy or tensor memory). Verified: `proxy_fence_declines_by_name` with an empty-kernel control; workspace test, clippy `-D warnings`, fmt and deny green; no kernel output changed.
