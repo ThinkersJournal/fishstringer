@@ -369,6 +369,10 @@ impl Slang {
     /// by `dxc -spirv`; slangc defines `__SLANG__`; dxc defines neither). Use [`Slang::lower_kernel_hlsl`] when the text is read
     /// by slangc. Everything else (the subgroup-size rule, the declines) is as for `lower_kernel_hlsl`.
     ///
+    /// **Minimum shader model 6.6**: the entry carries `[WaveSize(n)]`, which dxc rejects below SM 6.6 (`error: attribute wavesize
+    /// requires shader model 6.6 or greater` at `cs_6_0` and `cs_6_5`; accepted at `cs_6_6`/`cs_6_7` and under `-spirv` at vulkan1.1
+    /// and 1.3: measured by vulkane, dxc 1.9.0.5347). A consumer compiling with `-T cs_6_0`..`cs_6_5` gets a hard error.
+    ///
     /// # Errors
     ///
     /// [`LowerError::UnsupportedKernel`] as for `lower_kernel`.
