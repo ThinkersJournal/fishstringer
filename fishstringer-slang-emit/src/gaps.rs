@@ -4,13 +4,15 @@
 //! Peer/cluster *places* and `devices > 1` are not scanned yet: they need Unpopped variants crates.io lacks.
 
 use unpopped::exec::{Extent, MemorySpace, Scope};
-use unpopped::kernel::{Block, KernelFn, Place, Stmt};
+use unpopped::kernel::{Block, CollectiveKind, KernelFn, Place, Stmt, VoteKind};
 
 /// Every gap decline's reason starts with this, so a consumer can tell "outside the target" from "not taught yet".
 pub const GAP_PREFIX: &str = "slang target gap: ";
 
-/// The first gap `kernel` uses, as a reason (without the prefix), or `None`.
-pub(crate) fn first_gap(kernel: &KernelFn) -> Option<String> {
+/// The first gap `kernel` uses, as a reason (without the prefix), or `None`. `hlsl` is true only on the explicit HLSL entry
+/// points (`Slang::lower_kernel_hlsl`/`lower_module_hlsl`): there a subgroup `Collective` of a kind the HLSL lowering
+/// spells is not a gap (board 506); every other call declines every collective by name, as before.
+pub(crate) fn first_gap(kernel: &KernelFn, hlsl: bool) -> Option<String> {
     for a in &kernel.allocs {
         if a.space == MemorySpace::Tensor {
             return Some(format!(
@@ -36,7 +38,7 @@ pub(crate) fn first_gap(kernel: &KernelFn) -> Option<String> {
             return Some("cluster launch: Vulkan compute has no thread-block clusters".into());
         }
     }
-    block_gap(&kernel.body)
+    block_gap(&kernel.body, hlsl)
 }
 
 fn place_gap(p: &Place) -> Option<String> {
@@ -61,11 +63,32 @@ fn scope_gap(what: &str, scope: Scope) -> Option<String> {
     }
 }
 
-fn block_gap(b: &Block) -> Option<String> {
-    b.0.iter().find_map(stmt_gap)
+fn block_gap(b: &Block, hlsl: bool) -> Option<String> {
+    b.0.iter().find_map(|s| stmt_gap(s, hlsl))
 }
 
-fn stmt_gap(s: &Stmt) -> Option<String> {
+/// What the HLSL entry points decline about a collective, by name: `None` when `kind` at `scope` is one the HLSL lowering
+/// spells (subgroup `Reduce` of Sum/Prod/Max/Min/And/Or/Xor, `Shuffle`, `Vote` All/Any, `Broadcast`).
+fn hlsl_collective_gap(kind: &CollectiveKind, scope: Scope) -> Option<String> {
+    if scope != Scope::Subgroup {
+        return Some(format!(
+            "collective at {scope:?} scope: only subgroup collectives are lowered, and only for HLSL (board 506); block-scope collectives stay declined (board 434 C)"
+        ));
+    }
+    match kind {
+        CollectiveKind::Reduce(_) | CollectiveKind::Shuffle { .. } | CollectiveKind::Broadcast { .. } => None,
+        CollectiveKind::Vote(VoteKind::All | VoteKind::Any) => None,
+        CollectiveKind::Vote(_) => Some(
+            "Vote Ballot: HLSL `WaveActiveBallot` returns a `uint4`, the IR's Ballot is one 32-bit mask; not lowered (board 506)".into(),
+        ),
+        CollectiveKind::Scan { .. } | CollectiveKind::ReduceWith { .. } | CollectiveKind::ScanWith { .. } => Some(
+            "Scan/ReduceWith/ScanWith collective: declined by name, patent risk, board 434 C, see docs/PATENT_SWEEP.md".into(),
+        ),
+        _ => Some("collective kind not known to this emitter: declined by name".into()),
+    }
+}
+
+fn stmt_gap(s: &Stmt, hlsl: bool) -> Option<String> {
     match s {
         // Held on board 434 = C (CireSnave 2026-11-13): Slang to SPIR-V is non-NVIDIA, so these four are declined by
         // name. See docs/PATENT_SWEEP.md. A rule for what this target may ever emit, not a missing feature.
@@ -105,6 +128,7 @@ fn stmt_gap(s: &Stmt) -> Option<String> {
         | Stmt::Tcgen05RelinquishPermit => Some(
             "Tcgen05 statement (Tcgen05Mma/Tcgen05Ld/Tcgen05Alloc/Tcgen05Dealloc/Tcgen05RelinquishPermit): NVIDIA tensor-memory matrix multiply, no Vulkan spelling".into(),
         ),
+        Stmt::Collective { kind, scope, .. } if hlsl => hlsl_collective_gap(kind, *scope),
         Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => Some(
             "collective statement (Reduce/Scan/Shuffle/Vote/Broadcast, tuple forms): declined by name, patent risk, see docs/PATENT_SWEEP.md".into(),
         ),
@@ -147,8 +171,8 @@ fn stmt_gap(s: &Stmt) -> Option<String> {
                 None
             }
         }
-        Stmt::If { then, els, .. } => block_gap(then).or_else(|| block_gap(els)),
-        Stmt::For { body, .. } | Stmt::While { body, .. } => block_gap(body),
+        Stmt::If { then, els, .. } => block_gap(then, hlsl).or_else(|| block_gap(els, hlsl)),
+        Stmt::For { body, .. } | Stmt::While { body, .. } => block_gap(body, hlsl),
         _ => None,
     }
 }
