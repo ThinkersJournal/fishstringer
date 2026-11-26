@@ -4,6 +4,24 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.7.0 — **BREAKING**: takes unpopped 0.58.0 (breaking upstream); the new U8c statements decline by name
+
+Take unpopped 0.58.0 (BREAKING upstream): `fishstringer-slang-emit`, `-parse` and `-kernels-source` now require unpopped, unpopped-vocab, unpopped-convert and unpopped-cpu-c 0.58.0. The new statements `Tcgen05Alloc`, `Tcgen05Dealloc`, `Tcgen05RelinquishPermit` are declined by name as target gaps (NVIDIA tensor memory, no Vulkan spelling), and `CopyUnpack` joins the patent-flagged mbarrier/bulk-copy decline (board 434 C). Test fixtures carry the new `Wgmma.a_regs` and `Tcgen05Mma.m/d_lane/b_ty/negate_*` fields; each new decline is pinned by a checker-valid-shaped case and mutant-checked (removing the `Tcgen05Alloc` gap arm fails the test).
+
+`OP_SIGN` in unary, unary_f16, unary_bf16 and unary_f64 is now `isnan(x) ? 0 : sign(x)`. Measured by fuel (nan-sign-step): the unguarded SPIR-V FSign gives sign(NaN)=1.0 on the Radeon 610M (f32/f16/bf16; f64 ok) and 0 on the RTX 4070; KISS 6.2-0009 pins 0. Device run by fuel on branch bytes (ad5b324, slangc 2026.8): Radeon 610M sign(NaN)=0 on f32/f16/bf16/f64 with sign(+x)=1, sign(-x)=-1, sign(0)=0 intact; the published 0.6.0 bytes (byte-identical to a guard-removed mutant) give 1.0 on f32/f16/bf16. The RTX 4070 gives 0 either way (the driver lowers FSign NaN to 0), so it cannot tell guarded from unguarded.
+
+NaN status of the other ops, by static read of the emitted text only (no device run, none claimed safe): the emitter's Sign/Step/Relu/Max/Min are written as compare-selects, but the measured Sign result shows a static read does not predict device behaviour, so all are UNMEASURED. Also UNMEASURED: Floor, Ceil, Round, Trunc, Pow, Atan2, FmaxIeee/FminIeee, FClamp, SmoothStep (raw GLSL.std.450 calls, NaN result implementation-defined).
+
+— lane: fishstringer
+
+`Place::Raw` and `Place::AllocRaw` now decline with their own reason instead of "this place" (`Place` is `#[non_exhaustive]`, so a residual arm stays). New test `u8c_statements_and_byte_places_decline_by_name` covers `Wgmma`, `WgmmaCommit`, `Tcgen05Mma`, `Tcgen05Ld`, `Place::Raw` and `Place::AllocRaw` (each must name itself and never say "this statement"/"this place"), with a control kernel. Mutation check: with the `Place` arms reverted the test fails on `Place::Raw` ("this place is not lowered yet"). Workspace test, clippy `-D warnings`, fmt green.
+
+`Stmt::ProxyFence`, `Wgmma`/`WgmmaCommit`, `Tcgen05Mma`/`Tcgen05Ld` and `MemorySpace::Tensor` allocations are now recorded in `gaps.rs`, so they decline with `GAP_PREFIX` and a name (they are outside the Vulkan target for good). Before, a kernel carrying `Tcgen05Mma`/`Tcgen05Ld` (which unpopped requires to use a `Tensor` allocation) was declined as "a Constant or Global allocation" and the `stmts()` arms for them could never fire (aMusedPip review of #51, Medium). `lower_entry` also names `Tensor` in its allocation match. The `stmts()` arms for these variants stay as defence in depth, now commented as unreachable. `GridDepWait`/`GridDepLaunchDependents`/`MatrixLoad`/`MatrixStore` are NOT gaps (not taught yet) and still decline from `stmts()`.
+
+The by-name test now builds checker-conforming kernels (32-lane subgroup, block 128, Shared/Private/Tensor allocations) and asserts the decline is not the unpopped checker's: the earlier test passed vacuously for `Wgmma`/`Tcgen05` because the checker's `WgmmaUnsupported`/`Tcgen05Unsupported` text also contains the name. Mutation check: with the `Tensor` allocation gap disabled the test fails on the Tcgen05 cases.
+
+— lane: fishstringer
+
 ## 0.6.0 — **BREAKING**: take unpopped 0.57.0; U8c statements decline by name
 
 `fishstringer-slang-emit` and `fishstringer-slang-parse` now depend on unpopped, unpopped-vocab, unpopped-cpu-c and unpopped-convert 0.57.0 (was 0.56.1), per docs/emitter-migration-u8c.md on unpopped. The statement lowering no longer has a wildcard arm: every `Stmt` variant is named, and `ProxyFence`, `Wgmma`, `WgmmaCommit`, `Tcgen05Mma` and `Tcgen05Ld` decline with `UnsupportedKernel` and a reason (Vulkan compute has no async proxy or tensor memory). Verified: `proxy_fence_declines_by_name` with an empty-kernel control; workspace test, clippy `-D warnings`, fmt and deny green; no kernel output changed.
