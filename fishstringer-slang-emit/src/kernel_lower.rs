@@ -663,7 +663,73 @@ fn stmts(
                     None => out.push_str(&format!("{p}{call};\n")),
                 }
             }
-            _ => return Err(no(kernel, "this statement")),
+            // Every remaining `Stmt` variant is named, so a variant added by a later Unpopped release breaks this
+            // match at compile time instead of falling into a wildcard (unpopped 0.57 made `Stmt` exhaustive on
+            // purpose). The patent-held ones are declined earlier, by name, in `gaps.rs`.
+            Stmt::MulticastLoadReduce { .. } => {
+                return Err(no(
+                    kernel,
+                    "the MulticastLoadReduce statement (Vulkan compute has no multimem)",
+                ));
+            }
+            Stmt::GridDepWait | Stmt::GridDepLaunchDependents => {
+                return Err(no(
+                    kernel,
+                    "a grid-dependency statement (GridDepWait/GridDepLaunchDependents)",
+                ));
+            }
+            Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => {
+                return Err(no(
+                    kernel,
+                    "a collective statement (declined by name, docs/PATENT_SWEEP.md)",
+                ));
+            }
+            Stmt::MatrixLoad { .. } | Stmt::MatrixStore { .. } => {
+                return Err(no(
+                    kernel,
+                    "a matrix load/store statement (MatrixLoad/MatrixStore)",
+                ));
+            }
+            Stmt::MbarInit { .. }
+            | Stmt::MbarArrive { .. }
+            | Stmt::MbarCompleteTx { .. }
+            | Stmt::MbarWait { .. }
+            | Stmt::CopyBulk { .. } => {
+                return Err(no(
+                    kernel,
+                    "an mbarrier statement (declined by name, docs/PATENT_SWEEP.md)",
+                ));
+            }
+            Stmt::ProxyFence { .. } => {
+                return Err(no(
+                    kernel,
+                    "the ProxyFence statement (U8c, unpopped 0.57.0): Vulkan compute has a single memory proxy and no async-proxy operation to order",
+                ));
+            }
+            Stmt::Wgmma { .. } | Stmt::WgmmaCommit => {
+                return Err(no(
+                    kernel,
+                    "a Wgmma statement (U8c, unpopped 0.57.0): NVIDIA warpgroup matrix multiply, no Vulkan spelling",
+                ));
+            }
+            Stmt::Tcgen05Mma { .. } | Stmt::Tcgen05Ld { .. } => {
+                return Err(no(
+                    kernel,
+                    "a Tcgen05 statement (U8c, unpopped 0.57.0): NVIDIA tensor-memory matrix multiply, no Vulkan spelling",
+                ));
+            }
+            Stmt::WgmmaWait { .. } | Stmt::Tcgen05Commit { .. } => {
+                return Err(no(
+                    kernel,
+                    "a pending-matrix-multiply wait (declined by name, docs/PATENT_SWEEP.md)",
+                ));
+            }
+            Stmt::CopyAsync { .. } | Stmt::AsyncCommit | Stmt::AsyncWait { .. } => {
+                return Err(no(
+                    kernel,
+                    "an async copy statement (declined by name, docs/PATENT_SWEEP.md)",
+                ));
+            }
         }
     }
     Ok(())

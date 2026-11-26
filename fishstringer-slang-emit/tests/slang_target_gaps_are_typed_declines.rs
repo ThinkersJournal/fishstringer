@@ -439,3 +439,16 @@ fn collective_and_collective_tuple_decline_by_name_including_nested() {
         assert!(!decline(&k).starts_with(GAP_PREFIX));
     }
 }
+
+/// unpopped 0.57.0 (U8c): `Stmt::ProxyFence` is a typed decline that names the statement and says why, not the
+/// generic "this statement" wildcard. Control: the empty kernel declines generically and does not mention it.
+#[test]
+fn proxy_fence_declines_by_name() {
+    let mut k = empty().with_launch(unpopped::exec::LaunchShape::new([1, 1, 1], [1, 1, 1]));
+    k.body.0.push(Stmt::ProxyFence {
+        space: MemorySpace::Shared,
+    });
+    let d = decline(&k);
+    assert!(d.contains("ProxyFence") && d.contains("0.57.0"), "{d}");
+    assert!(!decline(&empty()).contains("ProxyFence"));
+}
