@@ -69,15 +69,15 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 
 [[package]]
 name = "fishstringer"
-version = "0.9.2"
+version = "0.10.0"
 
 [[package]]
 name = "fishstringer-kernels-source"
-version = "0.9.2"
+version = "0.10.0"
 
 [[package]]
 name = "fishstringer-slang-emit"
-version = "0.9.2"
+version = "0.10.0"
 dependencies = [
  "fishstringer-slang-parse",
  "kiss-vulkan-vocab",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[package]]
 name = "fishstringer-slang-parse"
-version = "0.9.2"
+version = "0.10.0"
 dependencies = [
  "tree-sitter",
  "tree-sitter-slang",
@@ -390,9 +390,9 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 
 [[package]]
 name = "unpopped"
-version = "0.59.1"
+version = "0.60.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "322b38f281413f5918f8589a0bda63df2f4cfd8e3fdde1541f400a3f04abf95d"
+checksum = "d8d1ab9e230ac45e8b841f39bb8163c290abaf5abb67d1a99bf41bd6a654fa9c"
 dependencies = [
  "libm",
  "serde",
@@ -402,9 +402,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-convert"
-version = "0.59.1"
+version = "0.60.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e10bb9d92ed37f1a7f8e7ba867edb82bc7170caf7f5c0af4f7fa884baa0aec5c"
+checksum = "35fed3e70a25ff2b7adda7085fbb76387dfd8ad2e7355bb407fb8ccb20bc30ea"
 dependencies = [
  "tree-sitter",
  "unpopped",
@@ -413,9 +413,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-cpu-c"
-version = "0.59.1"
+version = "0.60.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9361f634cbb7ed2e2fdcb63ac249d2c4de498f54f0f263a3d2612b010f741f98"
+checksum = "734211843fa4686d0bf2df59dc668e50dabbeab599dfcb04c6fac90fd7d257ab"
 dependencies = [
  "unpopped",
  "unpopped-vocab",
@@ -423,9 +423,9 @@ dependencies = [
 
 [[package]]
 name = "unpopped-vocab"
-version = "0.59.1"
+version = "0.60.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f4cc6fbee491356534d29253650735d874ea5ee9d4c4082a0477566cd00a536f"
+checksum = "cfeae2c453b5fd463d3c32f008e6cf06fb696eefa62bbecde2424827f891e0ae"
 dependencies = [
  "float8",
  "half",
