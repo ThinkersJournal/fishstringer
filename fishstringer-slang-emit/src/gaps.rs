@@ -20,6 +20,12 @@ pub(crate) fn first_gap(kernel: &KernelFn, hlsl: bool) -> Option<String> {
                 a.name
             ));
         }
+        if a.space == MemorySpace::Tile {
+            return Some(format!(
+                "tile allocation (`{}`, MemorySpace::Tile, unpopped 0.62.0): declined by name; lifted by CireSnave 2026-11-26 (board 519 B) as his risk call; not a clearance; no attorney; the Intel/NVIDIA tile-instruction method and medium claims remain NEEDS MORE as read",
+                a.name
+            ));
+        }
         if matches!(a.extent, Extent::Param(_)) {
             return Some(format!(
                 "run-time dynamic shared extent (`{}`): the extent must be a compile-time constant",
@@ -127,6 +133,12 @@ fn stmt_gap(s: &Stmt, hlsl: bool) -> Option<String> {
         | Stmt::Tcgen05Dealloc { .. }
         | Stmt::Tcgen05RelinquishPermit => Some(
             "Tcgen05 statement (Tcgen05Mma/Tcgen05Ld/Tcgen05Alloc/Tcgen05Dealloc/Tcgen05RelinquishPermit): NVIDIA tensor-memory matrix multiply, no Vulkan spelling".into(),
+        ),
+        // unpopped 0.62.0 tile statements: declined by name. Board 519 B text, verbatim: "lifted by CireSnave 2026-11-26
+        // (board 519 B) as his risk call; not a clearance; no attorney; the Intel/NVIDIA tile-instruction method and
+        // medium claims remain NEEDS MORE as read". No transpose and no saturating variant (US12405770B2 hold).
+        Stmt::TileLoad { .. } | Stmt::TileMma { .. } | Stmt::TileFill { .. } | Stmt::TileStore { .. } => Some(
+            "tile statement (TileLoad/TileMma/TileFill/TileStore, unpopped 0.62.0): declined by name; lifted by CireSnave 2026-11-26 (board 519 B) as his risk call; not a clearance; no attorney; the Intel/NVIDIA tile-instruction method and medium claims remain NEEDS MORE as read".into(),
         ),
         Stmt::Collective { kind, scope, .. } if hlsl => hlsl_collective_gap(kind, *scope),
         Stmt::Collective { .. } | Stmt::CollectiveTuple { .. } => Some(

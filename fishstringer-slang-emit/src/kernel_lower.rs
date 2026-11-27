@@ -938,6 +938,16 @@ fn stmts(
                     "a Tcgen05 statement (U8c, unpopped 0.58.0): NVIDIA tensor-memory matrix multiply, no Vulkan spelling",
                 ));
             }
+            // Defence in depth: `gaps.rs` declines these first; the arm keeps a new variant a compile error here.
+            Stmt::TileLoad { .. }
+            | Stmt::TileMma { .. }
+            | Stmt::TileFill { .. }
+            | Stmt::TileStore { .. } => {
+                return Err(no(
+                    kernel,
+                    "a tile statement (TileLoad/TileMma/TileFill/TileStore, unpopped 0.62.0): declined by name",
+                ));
+            }
             Stmt::WgmmaWait { .. } | Stmt::Tcgen05Commit { .. } => {
                 return Err(no(
                     kernel,
@@ -1165,6 +1175,12 @@ fn lower_entry(
                     "    {ty} a{k}[{n}]; // {}
 ",
                     a.name
+                ));
+            }
+            MemorySpace::Tile => {
+                return Err(no(
+                    kernel,
+                    "a Tile allocation (MemorySpace::Tile, unpopped 0.62.0): declined by name",
                 ));
             }
             MemorySpace::Tensor => {
