@@ -4,6 +4,19 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.10.1 — Slang `lower`: multi-output and hetero (u8 keep-mask) out-dtype plans, for interface callers
+
+`Slang::lower_with` no longer refuses a plan with several outputs or an output whose dtype differs from the compute dtype (the u8
+keep-mask of a dropout-class op). Like a runtime `Param`, such a plan changes the resource list the caller binds, so a legacy
+caller is still refused (`UnsupportedPlanShape`, naming `CallerCaps::with_interface()`), and an interface caller gets explicit
+`[[vk::binding]]` slots (inputs, then `output0..`, then the `Params_` block last), the `n` field and bounds guard, and a
+`KernelInterface` whose per-output buffer dtype is `out_dtype_of(j)`. A single uniform output keeps its historical text and name
+`output`. The bodies share one DAG (a value used by two outputs is computed once); the u8 conversion is applied at its own store,
+never inside the shared node. A u8 output is declined with a typed error on a target that advertises no 8-bit arithmetic.
+Verified: `tests/lower_multi_output.rs`, including slangc compiling both shapes and its reflected binding slots and `Params_`
+offsets equalling the stated interface. NOT verified: a device run; the `fishstringer-slang-parse` lifter does not yet read the
+multi-output form.
+
 ## 0.10.0 — **BREAKING**: take unpopped 0.60.1 (E1a: seven new `ElementKind` rows), each declined by name
 
 `fishstringer-slang-emit` and `fishstringer-slang-parse` take `unpopped`, `unpopped-vocab`, `unpopped-cpu-c` and `unpopped-convert` 0.60.1 (0.59.1 before; unpopped 0.60.0 is the BREAKING E1a release: seven new `ElementKind` variants `F128`, `I128`, `U128`, `I256`, `U256`, `F8E3M4`, `F8UE4M3` and `KernelError::DtypeNotComputed`). Breaking for our consumers because `ElementKind` is in our public API (the dependency-take rule, as for #51/#52/#53). No source change was needed: nothing in this emitter matches `ElementKind` exhaustively, the name tables end in a wildcard that declines. New test `new_dtype_rows_decline_by_name`: each of the seven is `DtypeSupport::Unsupported` on three targets (21 checks) and a launched copy kernel over each declines as `UnsupportedKernel` naming the dtype, with an F32 control that lowers. What Slang offers, measured with slangc 2026.8 by compiling `RWStructuredBuffer<T>` for HLSL (the Slang docs were not read): `float128_t`, `int128_t`, `uint128_t` are undefined identifiers; `FloatE4M3` and `FloatE5M2` exist; there is no E3M4 or unsigned-E4M3 type; so no new row has a spelling here. Verified: `cargo test --workspace --all-features` passes (0 failures), clippy `-D warnings` and `fmt --check` clean.

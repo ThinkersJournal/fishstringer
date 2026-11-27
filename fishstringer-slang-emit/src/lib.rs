@@ -76,7 +76,7 @@ pub use gaps::GAP_PREFIX;
 
 use unpopped::backend::{
     Backend, CallerCaps, Decline, DeclinedOp, DtypeSupport, GeneratedKernel, LowerError, Lowering,
-    Spelling, const_lit, lower_dag,
+    Spelling, const_lit, lower_dag, lower_dag_multi,
 };
 use unpopped::cfamily::{assert_no_int_div_or_const, dtype_tag};
 use unpopped::ir::{BinaryOp, ExprDag, ScalarExpr, UnaryOp};
@@ -438,26 +438,26 @@ impl Backend for Slang {
             });
         }
         let ctype = slang_ctype(plan.dtype).expect("dtype_ok implies a ctype");
-        if plan.n_outputs != 1 {
-            return Err(LowerError::UnsupportedPlanShape {
-                detail: format!(
-                    "slang backend v1: single-output only (the N-store emitter is a                      follow-up); op '{}' has {} outputs",
-                    plan.op_name, plan.n_outputs
-                ),
-            });
+        // Several outputs, or an output whose dtype differs from the compute dtype (a `u8` keep-mask), change the resource list
+        // the caller binds, so they travel with the interface exactly as a `Param` does; a plan with neither is untouched.
+        let n_out = usize::from(plan.n_outputs);
+        let hetero = (0..n_out).any(|j| plan.out_dtype_of(j) != plan.dtype);
+        for j in 0..n_out {
+            let d = plan.out_dtype_of(j);
+            if d != plan.dtype
+                && !(d == ElementKind::U8 && dtype_ok(d, plan.key.target).is_supported())
+            {
+                return Err(LowerError::UnsupportedPlanShape {
+                    detail: format!(
+                        "slang backend: op '{}' stores {d:?} for output {j} from a {:?} compute; only a u8 keep-mask (on a target that                          advertises 8-bit arithmetic) is spelled",
+                        plan.op_name, plan.dtype
+                    ),
+                });
+            }
         }
-        if plan.out_dtype_of(0) != plan.dtype {
-            return Err(LowerError::UnsupportedPlanShape {
-                detail: format!(
-                    "slang backend v1: uniform output dtype only — op '{}' stores {:?} from                      a {:?} compute (hetero out-dtype, e.g. a u8 keep-mask, is a follow-up)",
-                    plan.op_name,
-                    plan.out_dtype_of(0),
-                    plan.dtype
-                ),
-            });
-        }
+        let needs_interface = n_out != 1 || hetero;
         let n_params = param_count(plan.body);
-        if n_params > 0 && !caps.interface {
+        if (n_params > 0 || needs_interface) && !caps.interface {
             // A `Param` lives in a `ConstantBuffer` the caller must fill and bind (the interface's `params_block` and
             // `bindings` say where). A caller that binds buffers by declaration order and passes no block would run the
             // kernel on an unbound block, so it is refused, not served (`CallerCaps::LEGACY` is the default).
@@ -490,7 +490,7 @@ impl Backend for Slang {
             assert_no_int_div_or_const(plan.body, plan.dtype, false, false);
         }
         match plan.schedule {
-            Schedule::Scalar => emit_scalar_slang(plan, ctype, n_params),
+            Schedule::Scalar => emit_scalar_slang(plan, ctype, n_params, needs_interface),
             other => Err(LowerError::UnsupportedSchedule {
                 detail: format!(
                     "slang backend v1: the scalar contiguous Elementwise path ONLY — got                      schedule {other:?}. Vectorized / Strided / Reduction / RowReduce /                      Contraction / Scan / Window / RowSort / Im2Col are follow-ups."
@@ -508,7 +508,11 @@ fn emit_scalar_slang(
     plan: &KernelPlan<'_>,
     ctype: &str,
     n_params: usize,
+    multi_or_hetero: bool,
 ) -> Result<GeneratedKernel, LowerError> {
+    // The plan carries an interface (explicit slots, the `n` block and guard) when it reads a Param or has a non-trivial output list.
+    let with_block = n_params > 0 || multi_or_hetero;
+    let n_out = usize::from(plan.n_outputs);
     let name = format!("unpopped_slang_{}_{}", plan.op_name, dtype_tag(plan.dtype));
     let n = usize::from(plan.n_inputs);
     let mut s = String::new();
@@ -529,7 +533,7 @@ fn emit_scalar_slang(
     // With params the caller binds by the interface, so every resource states its slot; a parameterless kernel keeps its
     // historical text (declaration order, no attributes).
     let at = |slot: usize| {
-        if n_params > 0 {
+        if with_block {
             format!("[[vk::binding({slot}, 0)]] ")
         } else {
             String::new()
@@ -538,8 +542,15 @@ fn emit_scalar_slang(
     for i in 0..n {
         s.push_str(&format!("{}StructuredBuffer<{ctype}> input{i};\n", at(i)));
     }
-    s.push_str(&format!("{}RWStructuredBuffer<{ctype}> output;\n", at(n)));
-    if n_params > 0 {
+    for j in 0..n_out {
+        let octype = out_ctype(plan, j, ctype);
+        s.push_str(&format!(
+            "{}RWStructuredBuffer<{octype}> {};\n",
+            at(n + j),
+            out_name(n_out, j)
+        ));
+    }
+    if with_block {
         // `n` comes first: the element count the guard below checks, so a launch need not be a multiple of 256.
         s.push_str("struct Params_\n{\n    uint n;\n");
         for i in 0..n_params {
@@ -547,7 +558,7 @@ fn emit_scalar_slang(
         }
         s.push_str(&format!(
             "}};\n[[vk::binding({}, 0)]] ConstantBuffer<Params_> pb_;\n",
-            n + 1
+            n + n_out
         ));
     }
     // Helper functions for the E17 erf/lgamma polyfills go HERE, if the body names one.
@@ -557,46 +568,82 @@ fn emit_scalar_slang(
         "void {name}(uint3 tid : SV_DispatchThreadID) {{\n"
     ));
     s.push_str("    uint i = tid.x;\n");
-    if n_params > 0 {
+    if with_block {
         s.push_str("    if (i >= pb_.n) {\n        return;\n    }\n");
     }
     for i in 0..n_params {
         s.push_str(&format!("    float p{i} = pb_.p{i};\n"));
     }
     let acc = |idx: u8| Ok(Spelling::Spelled(format!("input{idx}[i]")));
-    let (prelude, root) = lower_dag(
-        &ExprDag::from_expr(plan.body),
-        ctype,
-        // Through the builder — the only route open to a backend outside the
-        // `unpopped` crate, which this one now is. See the same note in
-        // `unpopped-cpu-c`.
-        //
-        // No `.arith()`: Slang lowers no struct-typed dtype, so the C infix
-        // default is right for everything it spells. That is a real answer, not
-        // an omission — and it is why the default is a working spelling rather
-        // than a panic like `reduced`/`coord`.
-        &Lowering::builder(
-            &acc,
-            &|op, x| slang_unary(op, x, plan.dtype),
-            &|op, a, b| slang_binary(op, a, b, plan.dtype),
-        )
-        .select(&|c, a, b| slang_select(c, a, b, plan.dtype))
-        .constant(&|v| Ok(Spelling::Spelled(slang_const(v))))
-        .build(),
-    )?;
+    // Through the builder — the only route open to a backend outside the `unpopped` crate, which this one now is. No `.arith()`:
+    // Slang lowers no struct-typed dtype, so the C infix default is right for everything it spells.
+    let unary = |op, x| slang_unary(op, x, plan.dtype);
+    let binary = |op, a, b| slang_binary(op, a, b, plan.dtype);
+    let select = |c, a, b| slang_select(c, a, b, plan.dtype);
+    let constant = |v| Ok(Spelling::Spelled(slang_const(v)));
+    let lowering = Lowering::builder(&acc, &unary, &binary)
+        .select(&select)
+        .constant(&constant)
+        .build();
+    let (prelude, roots) = if n_out == 1 {
+        let (prelude, root) = lower_dag(&ExprDag::from_expr(plan.body), ctype, &lowering)?;
+        (prelude, vec![root])
+    } else {
+        // One DAG over `[body] ++ extra_out_bodies`: a value shared by two outputs is computed once.
+        let mut bodies: Vec<&ScalarExpr> = vec![plan.body];
+        bodies.extend(plan.extra_out_bodies.iter());
+        lower_dag_multi(&ExprDag::from_exprs(&bodies), ctype, &lowering, false)?
+    };
     for decl in &prelude {
-        s.push_str(&format!("    {decl}\n"));
+        s.push_str(&format!(
+            "    {decl}
+"
+        ));
     }
-    s.push_str(&format!("    output[i] = {root};\n"));
-    s.push_str("}\n");
+    for (j, root) in roots.iter().enumerate() {
+        // A hetero output (the u8 keep-mask) converts the exact 0/1 predicate at the store, never inside the shared DAG.
+        let stored = if plan.out_dtype_of(j) == plan.dtype {
+            root.clone()
+        } else {
+            format!("({}){root}", out_ctype(plan, j, ctype))
+        };
+        s.push_str(&format!(
+            "    {}[i] = {stored};
+",
+            out_name(n_out, j)
+        ));
+    }
+    s.push_str(
+        "}
+",
+    );
     if s[helpers_at..].contains(polyfill::HELPER_PREFIX) {
         s.insert_str(helpers_at, polyfill::HELPERS_F32);
     }
     let kernel = GeneratedKernel::new(name, s);
-    if n_params == 0 {
+    if !with_block {
         return Ok(kernel);
     }
     Ok(kernel.with_interface(params_interface(plan, n, n_params)))
+}
+
+/// The name of output buffer `j` of `n_out`: a single output keeps the historical `output`, several are `output0..`.
+fn out_name(n_out: usize, j: usize) -> String {
+    if n_out == 1 {
+        "output".to_string()
+    } else {
+        format!("output{j}")
+    }
+}
+
+/// Output `j`'s element type: the compute `ctype`, or the spelled type of a hetero (u8 keep-mask) output.
+fn out_ctype<'c>(plan: &KernelPlan<'_>, j: usize, ctype: &'c str) -> &'c str {
+    let d = plan.out_dtype_of(j);
+    if d == plan.dtype {
+        ctype
+    } else {
+        slang_ctype(d).expect("a hetero output dtype was checked spellable")
+    }
 }
 
 /// The launch interface of a kernel that carries `n_params` runtime scalars: the buffers at slots `0..=n` (inputs, then the
@@ -613,17 +660,20 @@ fn params_interface(plan: &KernelPlan<'_>, n: usize, n_params: usize) -> KernelI
             Some(1),
         ));
     }
-    params.push(Param::buffer(
-        "output",
-        plan.dtype,
-        BufferRole::Write,
-        Some(1),
-    ));
+    let n_out = usize::from(plan.n_outputs);
+    for j in 0..n_out {
+        params.push(Param::buffer(
+            out_name(n_out, j),
+            plan.out_dtype_of(j),
+            BufferRole::Write,
+            Some(1),
+        ));
+    }
     for i in 0..n_params {
         params.push(Param::scalar(format!("p{i}"), ElementKind::F32, i as u32));
     }
     iface.params = params;
-    for i in 0..=n {
+    for i in 0..n + n_out {
         iface = iface.with_binding(Binding::new(i, 0, i as u32));
     }
     let mut block = ParamsBlock::new(4 + 4 * n_params as u32, 4).with_field(ParamsBlockField::new(
