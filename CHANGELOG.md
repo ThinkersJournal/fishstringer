@@ -4,6 +4,12 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.12.1 — docs
+
+ROADMAP row 18: E16, E17 and E19 are shipped (the row still said on-branch, next and in review).
+
+— lane: fishstringer
+
 ## 0.12.0 — **BREAKING**: take unpopped 0.62.0; the tile statements and `MemorySpace::Tile` decline by name
 
 Takes `unpopped`, `unpopped-convert`, `unpopped-cpu-c` and `unpopped-vocab` 0.62.0 (a PR vulkane waits on: it cannot move to 0.62 until this publishes). `Stmt` gained `TileLoad`, `TileMma`, `TileFill` and `TileStore`, and `MemorySpace` gained `Tile`; each is declined by name with a `slang target gap:` reason (the gap scan in `gaps.rs`, plus defence-in-depth arms in `kernel_lower.rs`). The decline text carries verbatim: "lifted by CireSnave 2026-11-26 (board 519 B) as his risk call; not a clearance; no attorney; the Intel/NVIDIA tile-instruction method and medium claims remain NEEDS MORE as read". No transpose, no saturating variant (US12405770B2 hold). Verified: `cargo test --workspace` green (new `tile_decline_by_name.rs`; the published-fixtures table gained the four rows), `cargo clippy -D warnings`, `cargo tree -d` shows no duplicate `unpopped*`.
