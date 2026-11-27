@@ -725,6 +725,14 @@ fn param_count(e: &ScalarExpr) -> usize {
 /// intrinsics are overloaded — no `expf` vs `exp` split); integers have no unary
 /// math (the ir admissibility table rejects it, so the panic is the backstop).
 fn slang_unary(op: UnaryOp, x: String, dtype: ElementKind) -> Result<Spelling, LowerError> {
+    // unpopped 0.61 integer bit ops (Popc/Clz/Brev): declined by name at EVERY dtype until a row lowers them
+    // (countbits / firstbithigh / reversebits exist in HLSL, but none is spelled or measured here).
+    if op.is_bit_op() {
+        return Ok(Spelling::Declined(Decline::UnsupportedOp {
+            op: DeclinedOp::Unary(op),
+            why: "integer bit operation (popcount/clz/bit-reverse): declined by name, not lowered yet".to_string(),
+        }));
+    }
     match dtype {
         // The helper-function polyfills are f32 only (the helpers are `float`).
         ElementKind::F64 if polyfill::needs_helper(op) => {
@@ -795,6 +803,13 @@ fn slang_unary_fp(op: UnaryOp, x: String) -> Result<Spelling, LowerError> {
         // reference `0.5*x*(1+erf(x/sqrt(2)))` without its cancellation for x << 0.
         UnaryOp::Gelu => format!("fs_gelu({x})"),
         UnaryOp::Lgamma => format!("fs_lgamma({x})"),
+        // Backstop: `slang_unary` declines the bit ops before reaching here.
+        UnaryOp::Popc | UnaryOp::Clz | UnaryOp::Brev => {
+            return Ok(Spelling::Declined(Decline::UnsupportedOp {
+                op: DeclinedOp::Unary(op),
+                why: "integer bit operation has no float spelling".to_string(),
+            }));
+        }
     };
     Ok(Spelling::Spelled(spelled))
 }

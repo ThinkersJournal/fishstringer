@@ -260,6 +260,9 @@ fn spell(kernel: &KernelFn, e: &ScalarExpr) -> Result<String, LowerError> {
             Some(c) => bin(a, c, b),
             None => Err(no(kernel, "this expression")),
         },
+        // Named, so a decline says which op: the unpopped 0.61 integer bit ops (Popc/Clz/Brev) are not lowered yet
+        // (HLSL `countbits`/`firstbithigh`/`reversebits` exist; `firstbithigh(0)` is -1, not the IR's `Clz(0) == w`).
+        ScalarExpr::Unary(op, _) => Err(no(kernel, &format!("the unary op {op:?}"))),
         _ => Err(no(kernel, "this expression")),
     }
 }
