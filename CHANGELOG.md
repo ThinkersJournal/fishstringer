@@ -4,6 +4,12 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.12.2 — test
+
+Tests: I128/U128/I256/U256 operators in a kernel, and a module Call/CallTuple over them, decline by name (no emit, no panic); I32 controls lower.
+
+— lane: fishstringer
+
 ## 0.12.1 — docs
 
 ROADMAP row 18: E16, E17 and E19 are shipped (the row still said on-branch, next and in review).
