@@ -45,6 +45,7 @@ const EXPECTED: &[(&str, Outcome)] = &[
     ("GridDepWait", NotYet),
     ("GridDepLaunchDependents", NotYet),
     ("Fence", Lowers),
+    ("Assume", Lowers),
     ("Collective", Gap),
     ("CollectiveTuple", Gap),
     ("Mma", NotYet),
