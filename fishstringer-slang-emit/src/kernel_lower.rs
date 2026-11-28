@@ -617,6 +617,9 @@ fn stmts(
                 )),
                 _ => return Err(no(kernel, "a barrier of this scope")),
             },
+            // unpopped 0.64.0 U50: a pure value fact (reads and writes nothing, orders nothing). Omitted, as `unpopped-cpu-c` does;
+            // an optimiser-hint lowering is a later row (cluster ruling 2026-11-28). Pinned by `tests/lower_kernel_assume.rs`.
+            Stmt::Assume { .. } => {}
             Stmt::Fence { scope, .. } => match scope {
                 Scope::Block => out.push_str(&format!(
                     "{p}GroupMemoryBarrier();

@@ -1,0 +1,3 @@
+kind: take unpopped 0.64.0 (**BREAKING** upstream): `Stmt::Assume` is omitted from Slang output
+---
+`fishstringer-slang-emit`, `-slang-parse` and `-kernels-source` take `unpopped*` 0.64.0, whose exhaustive `Stmt` gains `Assume { cond }` (U50). `lower_kernel` now omits it: it is a pure value fact that reads, writes and orders nothing, and ignoring it is spec-permitted (`unpopped-cpu-c` does). `tests/lower_kernel_assume.rs` pins that a kernel with `Assume` statements emits byte-equal text to the same kernel without them (a statement that is not an Assume changes the text, as the control). An optimiser-hint lowering is a later row (UNVERIFIED against the target's documented hint). No other `Stmt` match needed a change: `gaps.rs` has a `_ => None` arm.
