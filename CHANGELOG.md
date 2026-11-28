@@ -4,6 +4,10 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.14.0 — take unpopped 0.64.0 (**BREAKING** upstream): `Stmt::Assume` is omitted from Slang output
+
+`fishstringer-slang-emit`, `-slang-parse` and `-kernels-source` take `unpopped*` 0.64.0, whose exhaustive `Stmt` gains `Assume { cond }` (U50). `lower_kernel` now omits it: it is a pure value fact that reads, writes and orders nothing, and ignoring it is spec-permitted (`unpopped-cpu-c` does). `tests/lower_kernel_assume.rs` pins that a kernel with `Assume` statements emits byte-equal text to the same kernel without them (a statement that is not an Assume changes the text, as the control). An optimiser-hint lowering is a later row (UNVERIFIED against the target's documented hint). No other `Stmt` match needed a change: `gaps.rs` has a `_ => None` arm.
+
 ## 0.13.0 — take unpopped 0.63.3 (BREAKING upstream)
 
 Take unpopped, unpopped-vocab, unpopped-cpu-c and unpopped-convert 0.63.3 (0.63.0-0.63.3; Numerics gains a spelling field). No `Numerics {` literal exists in this repo (git grep: 0 hits; control: `Stmt::Load` finds its uses), so no source change; the full workspace test run (declines by name, wide-int, tile, published fixtures) is green.
