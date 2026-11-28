@@ -1,3 +1,0 @@
-kind: take unpopped 0.65.1 (BREAKING upstream; no source change here)
----
-`unpopped`, `unpopped-vocab`, `unpopped-cpu-c` and `unpopped-convert` move from 0.64.0 to 0.65.1 in `fishstringer-slang-emit` and `fishstringer-slang-parse`. Unpopped 0.65.0 is breaking only for `cfamily::unary_f32`/`unary_f64` (now `Result`); this tree uses neither (it uses `cfamily::assert_no_int_div_or_const`, `dtype_tag`, `half_helpers`), so the take is a version bump. Verified at origin/main 87b8efe + this change: `cargo check --workspace --all-targets` clean, `cargo test --workspace` every result line `0 failed` (including `an_assume_never_changes_the_emitted_text_of_the_rest_of_the_kernel`), Cargo.lock holds one copy of each unpopped crate at 0.65.1. A PR vulkane waits on.
