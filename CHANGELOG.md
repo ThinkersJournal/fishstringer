@@ -4,6 +4,12 @@ Entries are written by `tools/stamp-version.py` from the fragments in `changelog
 History before this file existed is the ROADMAP's Done table and the merged PRs (#1 to #15); versions 0.0.12 to 0.0.17
 were published to crates.io.
 
+## 0.13.0 — take unpopped 0.63.3 (BREAKING upstream)
+
+Take unpopped, unpopped-vocab, unpopped-cpu-c and unpopped-convert 0.63.3 (0.63.0-0.63.3; Numerics gains a spelling field). No `Numerics {` literal exists in this repo (git grep: 0 hits; control: `Stmt::Load` finds its uses), so no source change; the full workspace test run (declines by name, wide-int, tile, published fixtures) is green.
+
+— lane: fishstringer
+
 ## 0.12.2 — test
 
 Tests: I128/U128/I256/U256 operators in a kernel, and a module Call/CallTuple over them, decline by name (no emit, no panic); I32 controls lower.

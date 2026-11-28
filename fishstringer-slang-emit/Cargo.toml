@@ -22,15 +22,15 @@ include      = ["src/**", "README.md", "LICENSE-*", "THIRD-PARTY-NOTICES.md"]
 convert = []
 
 [dependencies]
-unpopped          = "0.62.0"
-unpopped-vocab    = "0.62.0"
+unpopped          = "0.63.3"
+unpopped-vocab    = "0.63.3"
 kiss-vulkan-vocab = "0.6.0"
 
 [dev-dependencies]
 # The conformance cells (tests/) compare against the C reference emitter.
-unpopped-cpu-c = "0.62.0"
-unpopped-convert = "0.62.0"
-unpopped = { version = "0.62.0", features = ["fixtures"] }
+unpopped-cpu-c = "0.63.3"
+unpopped-convert = "0.63.3"
+unpopped = { version = "0.63.3", features = ["fixtures"] }
 # The slangc test writes its sources into a private, auto-removed directory.
 tempfile       = "3.27"
 serde_json     = "1"
